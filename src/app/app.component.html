@@ -1,16 +1,4 @@
-<div #shell class="shell">
-  <header *ngIf="showTopbar" #topbar class="topbar">
-    <div>
-      <p class="eyebrow">Turing Workspace</p>
-      <h1>App Validator</h1>
-    </div>
-
-    <nav class="nav">
-      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Dashboard</a>
-      <a routerLink="/report" routerLinkActive="active">Report</a>
-    </nav>
-  </header>
-
+﻿<div class="shell">
   <main class="content">
     <router-outlet></router-outlet>
   </main>

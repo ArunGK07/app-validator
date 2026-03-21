@@ -89,12 +89,12 @@ function extractCreatedObjects(sql) {
 }
 
 function createExecutor(connection) {
-  if (connection && typeof connection.cursor === 'function') {
-    return connection.cursor();
-  }
-
   if (connection && typeof connection.execute === 'function') {
     return connection;
+  }
+
+  if (connection && typeof connection.cursor === 'function') {
+    return connection.cursor();
   }
 
   throw new Error('Unsupported Oracle connection object');
@@ -325,3 +325,5 @@ export async function runNamingStandardValidator(taskId, taskDir, metadata, depe
 
   return results;
 }
+
+

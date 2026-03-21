@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+﻿import { CommonModule } from '@angular/common';
 import { Component, DestroyRef, OnInit, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
@@ -24,6 +24,7 @@ interface SortState {
   styleUrl: './dashboard-page.component.css',
 })
 export class DashboardPageComponent implements OnInit {
+  private static readonly DEFAULT_BATCH_ID = '311';
   private readonly api = inject(DashboardApiService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly fb = inject(FormBuilder);
@@ -42,7 +43,7 @@ export class DashboardPageComponent implements OnInit {
     userId: '',
     taskIdQuery: '',
     status: 'all',
-    batchId: '',
+    batchId: DashboardPageComponent.DEFAULT_BATCH_ID,
   });
 
   batchOptions: BatchOption[] = [];

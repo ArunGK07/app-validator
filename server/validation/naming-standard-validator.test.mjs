@@ -8,6 +8,9 @@ import { runNamingStandardValidator } from './naming-standard-validator.mjs';
 
 function createExecuteOnlyConnectionStub() {
   return {
+    cursor() {
+      throw new Error('cursor() should not be used when execute() is available');
+    },
     async execute(sql) {
       if (/FROM user_errors/i.test(sql) || /FROM user_identifiers/i.test(sql)) {
         return { rows: [] };
@@ -48,3 +51,5 @@ test('runNamingStandardValidator supports Node oracledb-style connections with e
     await rm(root, { recursive: true, force: true });
   }
 });
+
+

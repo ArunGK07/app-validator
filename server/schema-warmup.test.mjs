@@ -130,7 +130,7 @@ test('warmSchemaCache skips invalid bigquery placeholder candidates', async () =
         },
       ],
       generateSharedSchemaArtifact: async (metadata) => {
-        generated.push(${metadata.dataset ?? ''}::);
+        generated.push(`${metadata.dataset ?? ''}::${metadata.database ?? ''}`);
         return {
           source: 'database',
         };
@@ -144,4 +144,5 @@ test('warmSchemaCache skips invalid bigquery placeholder candidates', async () =
   assert.equal(result.generatedCount, 1);
   assert.equal(result.failedCount, 0);
 });
+
 

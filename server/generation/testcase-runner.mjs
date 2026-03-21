@@ -74,12 +74,12 @@ async function defaultConnectionFactory(metadata) {
 }
 
 function createExecutor(connection) {
-  if (connection && typeof connection.cursor === 'function') {
-    return connection.cursor();
-  }
-
   if (connection && typeof connection.execute === 'function') {
     return connection;
+  }
+
+  if (connection && typeof connection.cursor === 'function') {
+    return connection.cursor();
   }
 
   throw new Error('Unsupported Oracle connection object');
@@ -203,9 +203,12 @@ async function replaceAsync(input, regex, replacer) {
   let cursor = 0;
   for (const match of matches) {
     result += input.slice(cursor, match.index);
-    result += await replacer(...match);
+    result += await replacer(...match, match.groups ?? {});
     cursor = match.index + match[0].length;
   }
   result += input.slice(cursor);
   return result;
 }
+
+
+

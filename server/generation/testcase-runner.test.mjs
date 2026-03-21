@@ -1,4 +1,4 @@
-﻿import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -40,6 +40,9 @@ test('refreshTaskTestCases supports execute-only Oracle connections', async () =
 
     const result = await refreshTaskTestCases('9462', taskDir, metadata, {}, {
       connectionFactory: async () => ({
+        cursor() {
+          throw new Error('cursor() should not be used when execute() is available');
+        },
         async execute(sql) {
           executedSql.push(sql.trim());
           if (/DBMS_OUTPUT\.ENABLE/i.test(sql)) {
@@ -69,3 +72,4 @@ test('refreshTaskTestCases supports execute-only Oracle connections', async () =
     await rm(root, { recursive: true, force: true });
   }
 });
+
