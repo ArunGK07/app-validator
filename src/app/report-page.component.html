@@ -83,21 +83,22 @@
     </div>
   </div>
 
-  <div *ngIf="error" class="notice notice--error">{{ error }}</div>
+  <div class="report-body">
+    <div *ngIf="error" class="notice notice--error">{{ error }}</div>
 
-  <div *ngIf="!taskId" class="empty-state">
-    <h3>No task selected</h3>
-    <p>Open a task report from the dashboard to inspect the files available in its output folder.</p>
-  </div>
+    <div *ngIf="!taskId" class="empty-state">
+      <h3>No task selected</h3>
+      <p>Open a task report from the dashboard to inspect the files available in its output folder.</p>
+    </div>
 
-  <div *ngIf="taskId && loadingReport" class="loading-card" role="status" aria-live="polite">
-    <span class="spinner" aria-hidden="true"></span>
-    <span>Loading report files...</span>
-  </div>
+    <div *ngIf="taskId && loadingReport" class="loading-card" role="status" aria-live="polite">
+      <span class="spinner" aria-hidden="true"></span>
+      <span>Loading report files...</span>
+    </div>
 
-  <div *ngIf="taskId && !loadingReport && report">
-    <div class="report-grid">
-    <section class="file-preview-panel">
+    <div *ngIf="taskId && !loadingReport && report" class="report-content">
+      <div class="report-grid">
+      <section class="file-preview-panel">
       <div *ngIf="loadingFile" class="loading-card loading-card--inline" role="status" aria-live="polite">
         <span class="spinner" aria-hidden="true"></span>
         <span>Loading file content...</span>
@@ -194,18 +195,29 @@
 
     <aside class="validation-panel">
       <div class="validation-panel__header">
-        <h3>Validation Report</h3>
+        <div class="validation-panel__title-row">
+          <h3>Validation Report</h3>
+          <label class="validation-filter-toggle">
+            <input type="checkbox" [(ngModel)]="showCurrentFileErrorsOnly" />
+            <span>Current file only</span>
+          </label>
+        </div>
         <p *ngIf="validationReport; else validationPrompt">
-          Task-wide checklist and failures for task {{ validationReport.taskId }}. Source links open the related file.
+          <ng-container *ngIf="showCurrentFileErrorsOnly; else validationTaskWide">
+            Showing only failures linked to the selected file.
+          </ng-container>
+          <ng-template #validationTaskWide>
+            Task-wide checklist and failures for task {{ validationReport.taskId }}. Source links open the related file.
+          </ng-template>
         </p>
         <ng-template #validationPrompt>
           <p>Validation results are task-wide. Source links open the related file when available.</p>
         </ng-template>
       </div>
 
-      <div *ngIf="lastActionSummary.length || validationSummarySections.length || validationSections.length || validationChecklistGroups.length; else noValidation" class="validation-sections">
+      <div *ngIf="hasValidationContent; else noValidation" class="validation-sections">
         <section class="validation-summary-box">
-          <div *ngIf="topValidationAlerts.length" class="validation-summary-group">
+          <div *ngIf="showSummarySections && topValidationAlerts.length" class="validation-summary-group">
             <h4>Top Validation Errors</h4>
             <p class="validation-summary-caption">
               {{ topValidationAlerts.length }} of {{ totalValidationFailures }} failure{{ totalValidationFailures === 1 ? '' : 's' }} shown.
@@ -213,17 +225,26 @@
             </p>
             <div class="validation-summary-rows validation-summary-rows--dense">
               <div *ngFor="let alert of topValidationAlerts" class="validation-summary-entry validation-summary-entry--alert">
-                <button
-                  *ngIf="alert.sourceFile; else staticAlertTitle"
-                  type="button"
-                  class="validation-summary-link validation-summary-link--title"
-                  (click)="jumpToValidationSource(alert.sourceFile, alert.line)"
-                >
-                  {{ formatValidationAlertTitle(alert) }}
-                </button>
-                <ng-template #staticAlertTitle>
-                  <span class="validation-item__label validation-item__label--strong">{{ formatValidationAlertTitle(alert) }}</span>
-                </ng-template>
+                <div class="validation-summary-entry__actions">
+                  <button
+                    *ngIf="alert.sourceFile; else staticAlertTitle"
+                    type="button"
+                    class="validation-summary-link validation-summary-link--title"
+                    (click)="jumpToValidationSource(alert.sourceFile, alert.line)"
+                  >
+                    {{ formatValidationAlertTitle(alert) }}
+                  </button>
+                  <ng-template #staticAlertTitle>
+                    <span class="validation-item__label validation-item__label--strong">{{ formatValidationAlertTitle(alert) }}</span>
+                  </ng-template>
+                  <button
+                    type="button"
+                    class="validation-copy-button"
+                    (click)="copyValidationText(formatTopValidationAlertCopyText(alert))"
+                  >
+                    Copy
+                  </button>
+                </div>
                 <p class="validation-summary-note">Expected: {{ alert.expected || 'This validation check should pass.' }}</p>
                 <p class="validation-summary-note">Found: {{ alert.present || 'Validation failed.' }}</p>
                 <p *ngIf="alert.sourceFile" class="validation-summary-note">{{ formatSourceLocation(alert.sourceFile, alert.line) }}</p>
@@ -231,40 +252,46 @@
             </div>
           </div>
 
-          <div *ngFor="let section of lastActionSummary" class="validation-summary-group">
-            <h4>{{ section.title }}</h4>
-            <div class="validation-summary-rows">
-              <div *ngFor="let item of section.items" class="validation-summary-row">
-                <span class="validation-item__label">{{ item.label }}</span>
-                <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
-                  {{ item.value }}
-                </strong>
+          <div *ngIf="showSummarySections" class="validation-summary-group" [hidden]="!lastActionSummary.length">
+            <ng-container *ngFor="let section of lastActionSummary">
+              <h4>{{ section.title }}</h4>
+              <div class="validation-summary-rows">
+                <div *ngFor="let item of section.items" class="validation-summary-row">
+                  <span class="validation-item__label">{{ item.label }}</span>
+                  <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
+                    {{ item.value }}
+                  </strong>
+                </div>
               </div>
-            </div>
+            </ng-container>
           </div>
 
-          <div *ngFor="let section of validationSummarySections" class="validation-summary-group">
-            <h4>{{ section.title }}</h4>
-            <div class="validation-summary-rows">
-              <div *ngFor="let item of section.items" class="validation-summary-row">
-                <span class="validation-item__label">{{ item.label }}</span>
-                <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
-                  {{ item.value }}
-                </strong>
+          <div *ngIf="showSummarySections" class="validation-summary-group" [hidden]="!validationSummarySections.length">
+            <ng-container *ngFor="let section of validationSummarySections">
+              <h4>{{ section.title }}</h4>
+              <div class="validation-summary-rows">
+                <div *ngFor="let item of section.items" class="validation-summary-row">
+                  <span class="validation-item__label">{{ item.label }}</span>
+                  <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
+                    {{ item.value }}
+                  </strong>
+                </div>
               </div>
-            </div>
+            </ng-container>
           </div>
 
-          <div *ngFor="let section of validationSections" class="validation-summary-group">
-            <h4>{{ section.title }}</h4>
-            <div class="validation-summary-rows">
-              <div *ngFor="let item of section.items" class="validation-summary-row">
-                <span class="validation-item__label">{{ item.label }}</span>
-                <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
-                  {{ item.value }}
-                </strong>
+          <div *ngIf="showSummarySections" class="validation-summary-group" [hidden]="!validationSections.length">
+            <ng-container *ngFor="let section of validationSections">
+              <h4>{{ section.title }}</h4>
+              <div class="validation-summary-rows">
+                <div *ngFor="let item of section.items" class="validation-summary-row">
+                  <span class="validation-item__label">{{ item.label }}</span>
+                  <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
+                    {{ item.value }}
+                  </strong>
+                </div>
               </div>
-            </div>
+            </ng-container>
           </div>
 
           <div *ngFor="let group of validationChecklistGroups" class="validation-summary-group">
@@ -273,13 +300,22 @@
               <div *ngFor="let row of group.rows" class="validation-summary-entry">
                 <div class="validation-summary-row">
                   <span class="validation-item__label">{{ row.item }}</span>
-                  <strong
-                    class="validation-item__value"
-                    [class.validation-item__value--good]="checklistTone(row.status) === 'good'"
-                    [class.validation-item__value--warn]="checklistTone(row.status) === 'warn'"
-                  >
-                    {{ row.status }}
-                  </strong>
+                  <div class="validation-summary-row__actions">
+                    <strong
+                      class="validation-item__value"
+                      [class.validation-item__value--good]="checklistTone(row.status) === 'good'"
+                      [class.validation-item__value--warn]="checklistTone(row.status) === 'warn'"
+                    >
+                      {{ row.status }}
+                    </strong>
+                    <button
+                      type="button"
+                      class="validation-copy-button"
+                      (click)="copyValidationText(formatChecklistCopyText(row))"
+                    >
+                      Copy
+                    </button>
+                  </div>
                 </div>
                 <p class="validation-summary-note">Expected: {{ describeChecklistExpectation(row) }}</p>
                 <p class="validation-summary-note">Found: {{ describeChecklistFinding(row) }}</p>
@@ -303,20 +339,30 @@
             <div class="validation-summary-rows validation-summary-rows--dense">
               <div *ngFor="let row of group.rows" class="validation-summary-entry">
                 <div class="validation-summary-row">
-                  <button
-                    *ngIf="row.sourceFile; else staticFailureLabel"
-                    type="button"
-                    class="validation-summary-link validation-summary-link--title"
-                    (click)="jumpToValidationSource(row.sourceFile, row.line)"
-                  >
-                    {{ row.item }}
-                  </button>
+                  <ng-container *ngIf="row.sourceFile; else staticFailureLabel">
+                    <button
+                      type="button"
+                      class="validation-summary-link validation-summary-link--title"
+                      (click)="jumpToValidationSource(row.sourceFile, row.line)"
+                    >
+                      {{ row.item }}
+                    </button>
+                  </ng-container>
                   <ng-template #staticFailureLabel>
                     <span class="validation-item__label">{{ row.item }}</span>
                   </ng-template>
-                  <strong class="validation-item__value validation-item__value--warn">
-                    {{ row.present || row.expected || 'Failed' }}
-                  </strong>
+                  <div class="validation-summary-row__actions">
+                    <strong class="validation-item__value validation-item__value--warn">
+                      {{ row.present || row.expected || 'Failed' }}
+                    </strong>
+                    <button
+                      type="button"
+                      class="validation-copy-button"
+                      (click)="copyValidationText(formatFailureCopyText(row, group.title))"
+                    >
+                      Copy
+                    </button>
+                  </div>
                 </div>
                 <p *ngIf="row.expected" class="validation-summary-note">Expected: {{ row.expected }}</p>
                 <p class="validation-summary-note">Found: {{ row.present || row.expected || 'Failed' }}</p>
@@ -335,7 +381,8 @@
           <p>Select a file to see its validation details.</p>
         </div>
       </ng-template>
-    </aside>
+      </aside>
+      </div>
     </div>
   </div>
 </section>

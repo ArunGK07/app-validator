@@ -1,11 +1,21 @@
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
 .report-shell {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
+  height: 100%;
+  min-height: 0;
   padding: 20px;
   border-radius: 28px;
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.6);
   box-shadow: var(--shadow);
+  overflow: hidden;
 }
 
 .report-header {
@@ -187,8 +197,23 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(280px, 360px);
   gap: 16px;
+  height: 100%;
   min-height: 0;
   align-items: stretch;
+}
+
+.report-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.report-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .file-strip-panel,
@@ -298,15 +323,15 @@ h2 {
 .file-preview-panel {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
   overflow: hidden;
-  max-height: calc(100vh - var(--app-topbar-offset, 118px) - 330px);
 }
 
 .validation-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
   overflow: hidden;
-  max-height: calc(100vh - var(--app-topbar-offset, 118px) - 330px);
 }
 
 .file-preview {
@@ -318,6 +343,26 @@ h2 {
 .validation-panel__header {
   display: grid;
   gap: 6px;
+}
+
+.validation-panel__title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.validation-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.validation-filter-toggle input {
+  margin: 0;
 }
 
 .validation-panel__header p {
@@ -400,11 +445,46 @@ h2 {
   background: rgba(255, 248, 240, 0.9);
 }
 
+.validation-summary-entry__actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 10px;
+}
+
+.validation-summary-row__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
 .validation-summary-note {
   margin: 0;
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.35;
+}
+
+.validation-copy-button {
+  border: 1px solid rgba(131, 102, 65, 0.16);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: rgba(247, 241, 232, 0.92);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.validation-copy-button:hover {
+  border-color: rgba(205, 134, 63, 0.28);
+  background: rgba(255, 248, 240, 0.96);
+  transform: translateY(-1px);
 }
 
 .validation-summary-link {
@@ -533,7 +613,7 @@ h2 {
   margin: 0;
   padding: 10px 0;
   overflow: auto;
-  max-height: calc(100vh - var(--app-topbar-offset, 118px) - 390px);
+  min-height: 0;
   font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
   font-size: 0.92rem;
   line-height: 1.5;
@@ -587,14 +667,14 @@ h2 {
 
 .file-editor {
   width: 100%;
-  min-height: 100%;
+  min-height: 0;
+  height: 100%;
   border: 0;
   outline: none;
   resize: none;
   padding: 14px 16px;
   background: transparent;
   color: var(--text);
-  max-height: calc(100vh - var(--app-topbar-offset, 118px) - 390px);
   font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
   font-size: 0.92rem;
   line-height: 1.5;
@@ -667,13 +747,24 @@ h2 {
 }
 
 @media (max-width: 1200px) {
+  .report-shell {
+    height: auto;
+    overflow: visible;
+  }
+
+  .report-body,
+  .report-content {
+    overflow: visible;
+  }
+
   .report-grid {
     grid-template-columns: minmax(0, 1fr);
+    height: auto;
   }
 
   .file-preview-panel,
   .validation-panel {
-    max-height: none;
+    height: auto;
   }
 
   .file-code-view,
@@ -685,6 +776,11 @@ h2 {
 @media (max-width: 960px) {
   .report-header {
     gap: 12px;
+  }
+
+  .validation-panel__title-row {
+    display: grid;
+    justify-content: start;
   }
 
   .report-header__main {

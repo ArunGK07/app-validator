@@ -831,6 +831,35 @@ export class ReportPageComponent implements OnInit {
     return `${alert.validator} - ${scope} - ${alert.item}`;
   }
 
+  async copyValidationText(text: string): Promise<void> {
+    const content = text.trim();
+    if (!content) {
+      return;
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(content);
+      } else {
+        this.copyTextFallback(content);
+      }
+      this.actionError = '';
+      this.actionMessage = 'Copied validation message.';
+    } catch (error) {
+      this.actionError = this.asErrorMessage(error);
+    }
+  }
+
+  formatTopValidationAlertCopyText(alert: TopValidationAlert): string {
+    return [
+      this.formatValidationAlertTitle(alert),
+      `Expected: ${alert.expected || 'This validation check should pass.'}`,
+      `Found: ${alert.present || 'Validation failed.'}`,
+      `Status: FAIL`,
+      `File Name: ${alert.sourceFile ? this.formatSourceLocation(alert.sourceFile, alert.line) : 'N/A'}`,
+    ].join('\n');
+  }
+
   describeChecklistTest(row: ValidationChecklistEntry): string {
     return row.description || row.item;
   }
@@ -857,6 +886,32 @@ export class ReportPageComponent implements OnInit {
     }
 
     return row.line ? `${row.sourceFile} (Line ${row.line})` : row.sourceFile;
+  }
+
+  formatChecklistCopyText(row: ValidationChecklistEntry): string {
+    return [
+      row.item,
+      `Expected: ${this.describeChecklistExpectation(row)}`,
+      `Found: ${this.describeChecklistFinding(row)}`,
+      `Status: ${row.status}`,
+      `File Name: ${this.describeChecklistSource(row)}`,
+      row.update ? `Fix: ${row.update}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  formatFailureCopyText(row: ValidationFailureGroup['rows'][number], groupTitle: string): string {
+    return [
+      `${groupTitle} - ${row.item}`,
+      row.expected ? `Expected: ${row.expected}` : null,
+      `Found: ${row.present || row.expected || 'Failed'}`,
+      'Status: FAIL',
+      `File Name: ${row.sourceFile ? this.formatSourceLocation(row.sourceFile, row.line) : 'N/A'}`,
+      row.update ? `Fix: ${row.update}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   private loadReport(taskId: string): void {
@@ -1396,6 +1451,18 @@ export class ReportPageComponent implements OnInit {
     this.autoSaveTimer = setTimeout(() => {
       void this.persistEditableFile('auto');
     }, ReportPageComponent.AUTO_SAVE_RETRY_DELAY_MS);
+  }
+
+  private copyTextFallback(text: string): void {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'true');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
   }
 
   private asTone(success: boolean): 'good' | 'warn' {
