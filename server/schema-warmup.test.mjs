@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { warmSchemaCache } from './schema-warmup.mjs';
@@ -103,3 +103,45 @@ test('warmSchemaCache reports candidate fetch failures without throwing', async 
     },
   ]);
 });
+
+test('warmSchemaCache skips invalid bigquery placeholder candidates', async () => {
+  const generated = [];
+
+  const result = await warmSchemaCache(
+    {
+      cookie: 'cookie=value',
+    },
+    {
+      fetchSchemaCandidates: async () => [
+        {
+          metadata: {
+            database: 'bigquery-public-data',
+          },
+          schemaName: 'bigquery-public-data',
+          profile: 'bigquery_public_data',
+        },
+        {
+          metadata: {
+            dataset: 'cms_medicare',
+            database: 'bigquery-public-data',
+          },
+          schemaName: 'cms_medicare',
+          profile: 'bigquery_public_data',
+        },
+      ],
+      generateSharedSchemaArtifact: async (metadata) => {
+        generated.push(${metadata.dataset ?? ''}::);
+        return {
+          source: 'database',
+        };
+      },
+    },
+  );
+
+  assert.deepEqual(generated, ['cms_medicare::bigquery-public-data']);
+  assert.equal(result.status, 'completed');
+  assert.equal(result.candidateCount, 1);
+  assert.equal(result.generatedCount, 1);
+  assert.equal(result.failedCount, 0);
+});
+

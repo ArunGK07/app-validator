@@ -1,4 +1,4 @@
-import { createLogger } from './logger.mjs';
+﻿import { createLogger } from './logger.mjs';
 import { generateSharedSchemaArtifact } from './schema-extractor.mjs';
 import { resolveTaskRouting } from './schema-db-config.mjs';
 import { fetchSchemaWarmupCandidates } from './turing-api.mjs';
@@ -124,6 +124,13 @@ function dedupeSchemaCandidates(candidates) {
     const routing = resolveTaskRouting(metadata);
 
     if (!routing.schemaName) {
+      continue;
+    }
+
+    if (
+      routing.profile === 'bigquery_public_data' &&
+      /^bigquery-public-data$/i.test(String(routing.schemaName).trim())
+    ) {
       continue;
     }
 

@@ -87,8 +87,13 @@ export class ReportPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   @ViewChild('fileEditor') private fileEditorRef?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('readOnlyPreview') private readOnlyPreviewRef?: ElementRef<HTMLElement>;
+  @ViewChild('reportGrid') private reportGridRef?: ElementRef<HTMLElement>;
   private autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private saveRequest: Promise<boolean> | null = null;
+  private panelResizeCleanup: (() => void) | null = null;
+  private readonly defaultValidationPanelWidth = 360;
+  private readonly minValidationPanelWidth = 280;
+  private readonly minFilePreviewPanelWidth = 420;
   private validationStatusCache:
     | {
         report: ValidationMasterReport | null;
@@ -123,6 +128,7 @@ export class ReportPageComponent implements OnInit {
   lastSavedAt: string | null = null;
   lastSaveError = '';
   previewTargetLine: number | null = null;
+  validationPanelWidth = this.defaultValidationPanelWidth;
   readonly workflowActions: Array<{ action: TaskWorkflowAction; label: string }> = [
     { action: 'validate', label: 'Re-Validate' },
     { action: 'generate-outputs', label: 'Generate Outputs' },
@@ -130,7 +136,10 @@ export class ReportPageComponent implements OnInit {
   ];
 
   ngOnInit(): void {
-    this.destroyRef.onDestroy(() => this.clearAutoSaveTimer());
+    this.destroyRef.onDestroy(() => {
+      this.clearAutoSaveTimer();
+      this.stopPanelResize();
+    });
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const taskId = params.get('taskId') ?? '';
 
@@ -1331,6 +1340,113 @@ export class ReportPageComponent implements OnInit {
     return this.persistEditableFile('manual', { silent: true });
   }
 
+  startPanelResize(event: PointerEvent): void {
+    if (!this.isReportGridResizable()) {
+      return;
+    }
+
+    const grid = this.reportGridRef?.nativeElement;
+    if (!grid) {
+      return;
+    }
+
+    event.preventDefault();
+    this.stopPanelResize();
+
+    const startX = event.clientX;
+    const startWidth = this.validationPanelWidth;
+    const bounds = this.getValidationPanelWidthBounds();
+    const onMove = (moveEvent: PointerEvent) => {
+      const delta = startX - moveEvent.clientX;
+      this.validationPanelWidth = Math.round(this.clampValue(startWidth + delta, bounds.min, bounds.max));
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      document.body.style.removeProperty('cursor');
+      document.body.style.removeProperty('user-select');
+      this.panelResizeCleanup = null;
+    };
+
+    document.body.style.setProperty('cursor', 'col-resize');
+    document.body.style.setProperty('user-select', 'none');
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    this.panelResizeCleanup = stop;
+  }
+
+  handlePanelResizeKeydown(event: KeyboardEvent): void {
+    if (!this.isReportGridResizable()) {
+      return;
+    }
+
+    switch (event.key) {
+      case 'ArrowLeft':
+        event.preventDefault();
+        this.adjustValidationPanelWidth(-24);
+        break;
+      case 'ArrowRight':
+        event.preventDefault();
+        this.adjustValidationPanelWidth(24);
+        break;
+      case 'Home':
+        event.preventDefault();
+        this.validationPanelWidth = this.getValidationPanelWidthBounds().min;
+        break;
+      case 'End':
+        event.preventDefault();
+        this.validationPanelWidth = this.getValidationPanelWidthBounds().max;
+        break;
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        this.resetValidationPanelWidth();
+        break;
+      default:
+        break;
+    }
+  }
+
+  resetValidationPanelWidth(): void {
+    this.validationPanelWidth = this.getDefaultValidationPanelWidth();
+  }
+
+  private adjustValidationPanelWidth(delta: number): void {
+    const bounds = this.getValidationPanelWidthBounds();
+    this.validationPanelWidth = Math.round(this.clampValue(this.validationPanelWidth + delta, bounds.min, bounds.max));
+  }
+
+  private getDefaultValidationPanelWidth(): number {
+    const bounds = this.getValidationPanelWidthBounds();
+    return Math.round(this.clampValue(this.defaultValidationPanelWidth, bounds.min, bounds.max));
+  }
+
+  private getValidationPanelWidthBounds(): { min: number; max: number } {
+    const gridWidth = this.reportGridRef?.nativeElement?.getBoundingClientRect().width ?? 0;
+    const max =
+      gridWidth > 0
+        ? Math.max(this.minValidationPanelWidth, gridWidth - this.minFilePreviewPanelWidth - 12)
+        : Math.max(this.minValidationPanelWidth, this.defaultValidationPanelWidth);
+
+    return {
+      min: this.minValidationPanelWidth,
+      max,
+    };
+  }
+
+  private isReportGridResizable(): boolean {
+    return typeof window !== 'undefined' && window.matchMedia('(min-width: 1201px)').matches;
+  }
+
+  private stopPanelResize(): void {
+    this.panelResizeCleanup?.();
+  }
+
+  private clampValue(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
+  }
   private focusPreviewTarget(): void {
     if (!this.previewTargetLine || !this.fileContent) {
       return;
@@ -1537,6 +1653,8 @@ export class ReportPageComponent implements OnInit {
       .join(' ');
   }
 }
+
+
 
 
 

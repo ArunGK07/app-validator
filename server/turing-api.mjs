@@ -1,4 +1,4 @@
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+﻿import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve as pathResolve, relative as pathRelative } from 'node:path';
 import { URL, URLSearchParams } from 'node:url';
 
@@ -315,6 +315,13 @@ export async function fetchSchemaWarmupCandidates(config) {
       const schema = resolveTaskSchemaInfo(metadata);
 
       if (!schema.schemaName) {
+        continue;
+      }
+
+      if (
+        schema.profile === 'bigquery_public_data' &&
+        /^bigquery-public-data$/i.test(String(schema.schemaName).trim())
+      ) {
         continue;
       }
 

@@ -97,7 +97,7 @@
     </div>
 
     <div *ngIf="taskId && !loadingReport && report" class="report-content">
-      <div class="report-grid">
+      <div #reportGrid class="report-grid" [style.--validation-panel-width]="validationPanelWidth + 'px'">
       <section class="file-preview-panel">
       <div *ngIf="loadingFile" class="loading-card loading-card--inline" role="status" aria-live="polite">
         <span class="spinner" aria-hidden="true"></span>
@@ -192,6 +192,17 @@
         </div>
       </ng-template>
     </section>
+
+    <div
+      class="report-grid__resizer"
+      role="separator"
+      tabindex="0"
+      aria-label="Resize preview and validation panels"
+      aria-orientation="vertical"
+      (pointerdown)="startPanelResize($event)"
+      (keydown)="handlePanelResizeKeydown($event)"
+      (dblclick)="resetValidationPanelWidth()"
+    ></div>
 
     <aside class="validation-panel">
       <div class="validation-panel__header">
@@ -382,4 +393,5 @@
     </div>
   </div>
 </section>
+
 
