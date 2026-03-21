@@ -52,7 +52,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
 
     if (!this.showTopbar || !topbar) {
       shell.style.setProperty('--app-topbar-height', '0px');
-      shell.style.setProperty('--app-topbar-offset', '12px');
+      shell.style.setProperty('--app-topbar-offset', '0px');
       return;
     }
 
@@ -70,3 +70,4 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.resizeObserver.observe(topbar);
   }
 }
+

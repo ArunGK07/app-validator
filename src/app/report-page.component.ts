@@ -107,6 +107,7 @@ export class ReportPageComponent implements OnInit {
   fileContent: TaskReportFile | null = null;
   validationReport: ValidationMasterReport | null = null;
   showCurrentFileErrorsOnly = false;
+  showFailuresOnly = false;
   loadingReport = false;
   loadingFile = false;
   error = '';
@@ -149,6 +150,7 @@ export class ReportPageComponent implements OnInit {
       this.previewTargetLine = null;
       this.validationReport = null;
       this.showCurrentFileErrorsOnly = false;
+      this.showFailuresOnly = false;
       this.validationStatusCache = null;
       this.selectedFileName = '';
       this.actionError = '';
@@ -764,11 +766,17 @@ export class ReportPageComponent implements OnInit {
       return [];
     }
 
-    const rows = this.showCurrentFileErrorsOnly
-      ? this.validationReport.checklist.filter(
-          (row) => row.status === 'FAIL' && this.matchesCurrentFile(row.sourceFile),
-        )
-      : this.validationReport.checklist;
+    const rows = this.validationReport.checklist.filter((row) => {
+      if (this.showCurrentFileErrorsOnly && !this.matchesCurrentFile(row.sourceFile)) {
+        return false;
+      }
+
+      if (this.showCurrentFileErrorsOnly || this.showFailuresOnly) {
+        return row.status === 'FAIL';
+      }
+
+      return true;
+    });
 
     const groups = new Map<string, ValidationChecklistGroup>();
     for (const row of rows) {
@@ -815,6 +823,22 @@ export class ReportPageComponent implements OnInit {
 
   get showSummarySections(): boolean {
     return !this.showCurrentFileErrorsOnly;
+  }
+
+  get validationFilterDescription(): string {
+    if (!this.validationReport) {
+      return 'Validation results are task-wide. Source links open the related file when available.';
+    }
+
+    if (this.showCurrentFileErrorsOnly) {
+      return 'Showing only failures linked to the selected file.';
+    }
+
+    if (this.showFailuresOnly) {
+      return 'Showing only failures for task ' + this.validationReport.taskId + '. Source links open the related file.';
+    }
+
+    return 'Task-wide checklist and failures for task ' + this.validationReport.taskId + '. Source links open the related file.';
   }
 
   get hasValidationContent(): boolean {
@@ -1513,6 +1537,10 @@ export class ReportPageComponent implements OnInit {
       .join(' ');
   }
 }
+
+
+
+
 
 
 

@@ -115,11 +115,45 @@ function parseRequirementEntries(lines, index) {
   return { entries, error: null };
 }
 
+function extractRequirementProgramHeaders(lines, index) {
+  const requirementsStart = index.requirements;
+  if (requirementsStart === undefined) {
+    return null;
+  }
+
+  const parametersStart = index.parameters;
+  const stop = parametersStart !== undefined && parametersStart > requirementsStart
+    ? parametersStart
+    : Math.min(...Object.values(index).filter((lineIndex) => lineIndex > requirementsStart), lines.length);
+
+  const headers = [];
+  let sawNonEmptyLine = false;
+
+  for (let lineIndex = requirementsStart + 1; lineIndex < stop; lineIndex += 1) {
+    const rawLine = lines[lineIndex].replace(/\r$/, '');
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      continue;
+    }
+    sawNonEmptyLine = true;
+    if (/^\t/.test(rawLine)) {
+      continue;
+    }
+    if (trimmed.endsWith(':')) {
+      headers.push(trimmed);
+    }
+  }
+
+  if (sawNonEmptyLine && !headers.length) {
+    return null;
+  }
+
+  return headers;
+}
+
 function countRequirementPrograms(lines, index) {
-  const parsed = parseRequirementEntries(lines, index);
-  return parsed.entries.filter(([label]) =>
-    ['Procedure Name:', 'Function Name:', 'Package Name:', 'Trigger Name:', 'Object Name:', 'Anonymous Block:'].includes(label),
-  ).length;
+  const headers = extractRequirementProgramHeaders(lines, index);
+  return headers === null ? null : headers.length;
 }
 
 function structuralSectionResult(taskId, turnNumber, lines, index, item, sectionKey, sourceName, optional = false) {
@@ -276,6 +310,34 @@ function validateOutputShape(taskId, turnNumber, lines, index, sourceName) {
   return createPass(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Output Format', 'output_groups_valid', sourceName);
 }
 
+function isProgramSubheader(line) {
+  const trimmed = line.trim();
+  return Boolean(trimmed) && trimmed.endsWith(':') && !trimmed.includes(' : ');
+}
+
+function validateSortingOrderShape(taskId, turnNumber, lines, index, sourceName) {
+  if (index.sorting_order === undefined) {
+    return createPass(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Sorting Order Format', 'sorting_optional_absent', sourceName);
+  }
+
+  const body = sectionBody(lines, index, 'sorting_order');
+  if (!body.length) {
+    return createPass(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Sorting Order Format', 'sorting_content_checked_elsewhere', sourceName);
+  }
+
+  const hasGroup = body.some((line) => isProgramSubheader(line));
+  if (!hasGroup && countRequirementPrograms(lines, index) !== 1) {
+    return createFail(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Sorting Order Format', 'missing_sorting_groups', {
+      expected: '`Sorting Order:` must group sorting details under program-name headers when multiple programs exist',
+      present: `no \`<Program Name>:\` header found in \`Sorting Order:\` of ${sourceName}`,
+      update: 'add one program header before its sorting lines, or keep a flat list for a single program',
+      sourceFile: sourceName,
+    });
+  }
+
+  return createPass(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Sorting Order Format', 'sorting_groups_valid', sourceName);
+}
+
 function validateExceptionHandlingShape(taskId, turnNumber, lines, index, sourceName) {
   const body = sectionBody(lines, index, 'exception_handling');
   if (!body.length) {
@@ -287,8 +349,18 @@ function validateExceptionHandlingShape(taskId, turnNumber, lines, index, source
     });
   }
 
+  const hasGroup = body.some((line) => isProgramSubheader(line));
+  if (!hasGroup && countRequirementPrograms(lines, index) !== 1) {
+    return createFail(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Exception Handling Format', 'missing_exception_groups', {
+      expected: '`Exception Handling:` must group scenario-message details under program-name headers when multiple programs exist',
+      present: `no \`<Program Name>:\` header found in \`Exception Handling:\` of ${sourceName}`,
+      update: 'add one program header before its exception lines, or keep a flat list for a single program',
+      sourceFile: sourceName,
+    });
+  }
+
   for (const line of body) {
-    if (line.trimEnd().endsWith(':') && !line.includes(' : ')) {
+    if (isProgramSubheader(line)) {
       continue;
     }
     if (!EXCEPTION_LINE_RE.test(line.trim())) {
@@ -618,6 +690,7 @@ export async function runPromptStructureValidator(taskId, taskDir, metadata) {
     results.push(structuralSectionResult(taskId, turnNumber, lines, index, 'Output', 'output', promptArtifact.fileName));
     results.push(validateOutputShape(taskId, turnNumber, lines, index, promptArtifact.fileName));
     results.push(structuralSectionResult(taskId, turnNumber, lines, index, 'Sorting Order', 'sorting_order', promptArtifact.fileName, true));
+    results.push(validateSortingOrderShape(taskId, turnNumber, lines, index, promptArtifact.fileName));
     results.push(structuralSectionResult(taskId, turnNumber, lines, index, 'Exception Handling', 'exception_handling', promptArtifact.fileName));
     results.push(
       promptMarkupFailures(promptText).length

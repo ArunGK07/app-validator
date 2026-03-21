@@ -197,22 +197,18 @@
       <div class="validation-panel__header">
         <div class="validation-panel__title-row">
           <h3>Validation Report</h3>
-          <label class="validation-filter-toggle">
-            <input type="checkbox" [(ngModel)]="showCurrentFileErrorsOnly" />
-            <span>Current file only</span>
-          </label>
+          <div class="validation-filter-toggles">
+            <label class="validation-filter-toggle">
+              <input type="checkbox" [(ngModel)]="showCurrentFileErrorsOnly" />
+              <span>Current file only</span>
+            </label>
+            <label class="validation-filter-toggle">
+              <input type="checkbox" [(ngModel)]="showFailuresOnly" />
+              <span>Failures only</span>
+            </label>
+          </div>
         </div>
-        <p *ngIf="validationReport; else validationPrompt">
-          <ng-container *ngIf="showCurrentFileErrorsOnly; else validationTaskWide">
-            Showing only failures linked to the selected file.
-          </ng-container>
-          <ng-template #validationTaskWide>
-            Task-wide checklist and failures for task {{ validationReport.taskId }}. Source links open the related file.
-          </ng-template>
-        </p>
-        <ng-template #validationPrompt>
-          <p>Validation results are task-wide. Source links open the related file when available.</p>
-        </ng-template>
+        <p>{{ validationFilterDescription }}</p>
       </div>
 
       <div *ngIf="hasValidationContent; else noValidation" class="validation-sections">
@@ -386,3 +382,4 @@
     </div>
   </div>
 </section>
+

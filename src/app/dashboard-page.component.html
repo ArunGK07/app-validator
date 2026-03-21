@@ -1,20 +1,3 @@
-<!-- <section class="hero">
-  <div class="hero-copy">
-    <p class="tag">Stage 1 live integration</p>
-    <h2>Fetch labeling conversations, inspect metadata, and prepare validation.</h2>
-    <p class="description">
-      Team members and conversations are loaded through the local proxy. Validate and report flows are already placed
-      in the UI and can be expanded next.
-    </p>
-  </div>
-
-  <div class="status-card" [class.status-card--ok]="health?.configured">
-    <p class="status-card__label">Proxy Status</p>
-    <strong>{{ health?.configured ? 'Cookie configured' : 'Cookie missing' }}</strong>
-    <span>{{ health?.message || 'Checking backend configuration...' }}</span>
-  </div>
-</section> -->
-
 <section class="panel panel-filters">
   <form class="filters" [formGroup]="filtersForm">
     <label>
@@ -51,15 +34,17 @@
     </label>
   </form>
 
-  <div *ngIf="message" class="notice">{{ message }}</div>
-  <div *ngIf="error" class="notice notice--error">{{ error }}</div>
 </section>
 
 <section class="panel panel-table">
   <div class="panel-table__header">
-    <div>
+    <div class="panel-table__summary">
       <p class="section-tag">Task Results</p>
       <h3>{{ rows.length }} rows</h3>
+      <div *ngIf="message || error" class="filters-feedback">
+        <div *ngIf="message" class="notice">{{ message }}</div>
+        <div *ngIf="error" class="notice notice--error">{{ error }}</div>
+      </div>
     </div>
     <div class="panel-table__actions">
       <span class="table-hint">RLHF prompt links are captured when available for the next GraphQL stage.</span>
@@ -184,7 +169,6 @@
               ></span>
             </button>
           </th>
-
           <th>Actions</th>
         </tr>
       </thead>
@@ -249,7 +233,12 @@
                 >
                   {{ isValidateRunningForTask(row.taskId) ? 'Validating...' : 'Validate' }}
                 </button>
-                <button class="btn btn-secondary btn-row" type="button" (click)="openReport(row.taskId)" [disabled]="isTaskActionDisabled()">
+                <button
+                  class="btn btn-secondary btn-row"
+                  type="button"
+                  (click)="openReport(row.taskId)"
+                  [disabled]="isTaskActionDisabled()"
+                >
                   View Result
                 </button>
               </div>
@@ -275,3 +264,4 @@
     </div>
   </ng-template>
 </section>
+

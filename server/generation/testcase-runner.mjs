@@ -73,42 +73,84 @@ async function defaultConnectionFactory(metadata) {
   });
 }
 
+function createExecutor(connection) {
+  if (connection && typeof connection.cursor === 'function') {
+    return connection.cursor();
+  }
+
+  if (connection && typeof connection.execute === 'function') {
+    return connection;
+  }
+
+  throw new Error('Unsupported Oracle connection object');
+}
+
+async function closeExecutor(executor, connection) {
+  if (executor !== connection && typeof executor?.close === 'function') {
+    await executor.close();
+  }
+}
+
 async function defaultCompileReference(referenceText, connection) {
-  const cursor = connection.cursor();
+  const executor = createExecutor(connection);
   try {
     for (const statement of splitSqlStatements(referenceText)) {
-      await cursor.execute(statement);
+      await executor.execute(statement);
     }
     await connection.commit();
   } finally {
-    await cursor.close();
+    await closeExecutor(executor, connection);
   }
 }
 
 async function defaultExecuteInstructions(instructions, connection) {
-  const cursor = connection.cursor();
+  const executor = createExecutor(connection);
   const output = [];
   try {
-    await cursor.execute('BEGIN DBMS_OUTPUT.ENABLE(NULL); END;');
+    await executor.execute('BEGIN DBMS_OUTPUT.ENABLE(NULL); END;');
     for (const statement of splitSqlStatements(instructions)) {
-      await cursor.execute(statement);
-      if (cursor.description) {
-        const rows = await cursor.getRows(500);
-        output.push(...rows.map((row) => row.map((value) => String(value ?? 'NULL')).join(' | ')));
-      }
-      output.push(...(await drainDbmsOutput(cursor)));
+      const result = await executor.execute(statement);
+      const rows = await extractRows(executor, result);
+      output.push(...rows.map((row) => normalizeRow(row).map((value) => String(value ?? 'NULL')).join(' | ')));
+      output.push(...(await drainDbmsOutput(executor)));
     }
     await connection.commit();
   } finally {
-    await cursor.close();
+    await closeExecutor(executor, connection);
   }
   return output.join('\n').trimEnd();
 }
 
-async function drainDbmsOutput(cursor) {
+async function extractRows(executor, result) {
+  if (Array.isArray(result?.rows)) {
+    return result.rows;
+  }
+
+  if (result?.resultSet && typeof result.resultSet.getRows === 'function') {
+    try {
+      return await result.resultSet.getRows(500);
+    } finally {
+      if (typeof result.resultSet.close === 'function') {
+        await result.resultSet.close();
+      }
+    }
+  }
+
+  if (typeof executor?.getRows === 'function') {
+    return executor.getRows(500);
+  }
+
+  return [];
+}
+
+function normalizeRow(row) {
+  return Array.isArray(row) ? row : [row];
+}
+
+async function drainDbmsOutput(executor) {
   const lines = [];
   while (true) {
-    const result = await cursor.execute('BEGIN DBMS_OUTPUT.GET_LINE(:line, :status); END;', {
+    const result = await executor.execute('BEGIN DBMS_OUTPUT.GET_LINE(:line, :status); END;', {
       line: { dir: oracledb.BIND_OUT, type: oracledb.STRING, maxSize: 32767 },
       status: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
     });
