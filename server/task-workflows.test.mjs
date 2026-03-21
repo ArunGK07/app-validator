@@ -165,6 +165,8 @@ test('runTaskWorkflowAction(validate) writes native validation reports and struc
     const masterReport = JSON.parse(await readFile(join(taskDir, '_validation', 'master_validator_task_9418.json'), 'utf8'));
     assert.equal(masterReport.summary.validatorsFailed, 0);
     assert.equal(masterReport.validators.length, 3);
+    assert.ok(Array.isArray(masterReport.checklist));
+    assert.ok(masterReport.checklist.length > 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

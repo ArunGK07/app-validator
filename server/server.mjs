@@ -12,6 +12,7 @@ import {
   listTaskOutputFiles,
   readRuntimeConfig,
   readTaskOutputFile,
+  writeTaskOutputFile,
 } from './turing-api.mjs';
 import { fetchTaskOutputArtifacts } from './task-output-fetcher.mjs';
 import { runTaskWorkflowAction } from './task-workflows.mjs';
@@ -24,7 +25,7 @@ const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? '127.0.0.1';
 const logger = createLogger('server');
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use((request, response, next) => {
   const startedAt = Date.now();
 
@@ -118,6 +119,20 @@ app.get('/api/reports/:taskId/file', async (request, response) => {
   }
 });
 
+app.put('/api/reports/:taskId/file', async (request, response) => {
+  try {
+    const file = await writeTaskOutputFile(
+      asPathString(request.params.taskId),
+      asQueryString(request.query.name),
+      typeof request.body?.content === 'string' ? request.body.content : '',
+      readRuntimeConfig(),
+    );
+    response.json(file);
+  } catch (error) {
+    sendProxyError(response, error);
+  }
+});
+
 app.post('/api/tasks/:taskId/fetch-output', async (request, response) => {
   try {
     const result = await fetchTaskOutputArtifacts(
@@ -146,6 +161,26 @@ app.post('/api/tasks/:taskId/actions/:action', async (request, response) => {
   } catch (error) {
     sendProxyError(response, error);
   }
+});
+
+app.use((error, _request, response, _next) => {
+  const statusCode =
+    typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number'
+      ? error.status
+      : typeof error === 'object' && error !== null && 'statusCode' in error && typeof error.statusCode === 'number'
+        ? error.statusCode
+        : 500;
+
+  const type = typeof error === 'object' && error !== null && 'type' in error ? String(error.type) : '';
+  const message =
+    type === 'entity.too.large'
+      ? 'Saved file is too large for the current request limit.'
+      : error instanceof Error
+        ? error.message
+        : 'Unexpected proxy error.';
+
+  logger.error('Unhandled request error', { statusCode, type, message });
+  response.status(statusCode).json({ message });
 });
 
 const server = app.listen(port, host, () => {

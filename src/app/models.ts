@@ -131,6 +131,34 @@ export interface ValidationResultRow {
   line: number | null;
 }
 
+export interface ValidationChecklistCatalogEntry {
+  checkId: string;
+  category: string;
+  validator: string;
+  item?: string;
+  itemPrefix?: string;
+  dynamic?: boolean;
+  ruleIds: string[];
+  description: string;
+}
+
+export interface ValidationChecklistEntry {
+  checkId: string;
+  category: string;
+  validator: string;
+  item: string;
+  ruleId: string | null;
+  description: string | null;
+  status: 'PASS' | 'FAIL' | 'NOT_RUN';
+  taskId: string | null;
+  turnId: number | null;
+  expected: string | null;
+  present: string | null;
+  update: string | null;
+  sourceFile: string | null;
+  line: number | null;
+}
+
 export interface ValidationRunSummary {
   validator: string;
   success: boolean;
@@ -151,5 +179,7 @@ export interface ValidationMasterReport {
   taskId: string;
   summary: ValidationMasterSummary;
   validators: ValidationRunSummary[];
+  checklistCatalog: ValidationChecklistCatalogEntry[];
+  checklist: ValidationChecklistEntry[];
   results: ValidationResultRow[];
 }

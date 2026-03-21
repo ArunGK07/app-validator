@@ -27,6 +27,7 @@ import {
   readTaskOutputFile,
   resolveTaskSchemaInfo,
   summarizeMetadata,
+  writeTaskOutputFile,
 } from './turing-api.mjs';
 
 const config = {
@@ -551,6 +552,43 @@ test('readTaskOutputFile returns nested log file contents from the configured ta
     assert.equal(file.name, '_logs/validate-2026-03-21.log');
     assert.equal(file.extension, 'log');
     assert.equal(file.content, 'validation started');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('writeTaskOutputFile updates editable txt files in the configured task folder', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-report-'));
+  const taskDir = join(root, '9479');
+  const filePath = join(taskDir, '9479_turn1_1user.txt');
+
+  try {
+    await mkdir(taskDir);
+    await writeFile(filePath, 'before');
+
+    const file = await writeTaskOutputFile('9479', '9479_turn1_1user.txt', 'after', { taskOutputDir: root });
+
+    assert.equal(file.extension, 'txt');
+    assert.equal(file.content, 'after');
+    assert.equal(await readTaskOutputFile('9479', '9479_turn1_1user.txt', { taskOutputDir: root }).then((entry) => entry.content), 'after');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('writeTaskOutputFile rejects non-editable file extensions', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-report-'));
+  const taskDir = join(root, '9479');
+  const filePath = join(taskDir, '9479_existing_output.json');
+
+  try {
+    await mkdir(taskDir);
+    await writeFile(filePath, '{"ok":true}');
+
+    await assert.rejects(
+      writeTaskOutputFile('9479', '9479_existing_output.json', '{"ok":false}', { taskOutputDir: root }),
+      /Only \.txt and \.sql files can be edited/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

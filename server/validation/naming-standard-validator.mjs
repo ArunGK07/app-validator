@@ -88,6 +88,18 @@ function extractCreatedObjects(sql) {
     .map((match) => [normalizeObjectName(match[2]), normalizeObjectType(match[1])]);
 }
 
+function createExecutor(connection) {
+  if (connection && typeof connection.cursor === 'function') {
+    return connection.cursor();
+  }
+
+  if (connection && typeof connection.execute === 'function') {
+    return connection;
+  }
+
+  throw new Error('Unsupported Oracle connection object');
+}
+
 async function executeSqlBlocks(cursor, sql) {
   for (const block of splitSqlBlocks(sql)) {
     if (!block.trim()) {
@@ -197,7 +209,7 @@ export async function runNamingStandardValidator(taskId, taskDir, metadata, depe
 
   const connect = dependencies.connect ?? (async (taskMetadata) => {
     const params = getConnectionParamsForTask(taskMetadata);
-    return oracledb.connect({
+    return oracledb.getConnection({
       user: params.user,
       password: params.password,
       connectString: `${params.host}:${params.port}/${params.service}`,
@@ -208,12 +220,13 @@ export async function runNamingStandardValidator(taskId, taskDir, metadata, depe
   const results = [];
   const routing = resolveTaskRouting(metadata);
   let connection = null;
+  let executor = null;
 
   try {
     connection = await connect(metadata);
-    const cursor = connection.cursor();
-    await cursor.execute(`ALTER SESSION SET CURRENT_SCHEMA = ${routing.schemaName}`);
-    await cursor.execute(`ALTER SESSION SET PLSCOPE_SETTINGS='IDENTIFIERS:ALL'`);
+    executor = createExecutor(connection);
+    await executor.execute(`ALTER SESSION SET CURRENT_SCHEMA = ${routing.schemaName}`);
+    await executor.execute(`ALTER SESSION SET PLSCOPE_SETTINGS='IDENTIFIERS:ALL'`);
 
     for (let turnNumber = 1; turnNumber <= numTurns; turnNumber += 1) {
       const artifact = await loadTurnTextArtifact(taskDir, 'turn_reference_answer_file', taskId, turnNumber);
@@ -228,14 +241,14 @@ export async function runNamingStandardValidator(taskId, taskDir, metadata, depe
       }
 
       try {
-        const [objectName, objectType] = await compileFile(cursor, artifact.text, tempObjectName(artifact.fileName));
-        const identifierResult = await cursor.execute(
+        const [objectName, objectType] = await compileFile(executor, artifact.text, tempObjectName(artifact.fileName));
+        const identifierResult = await executor.execute(
           `SELECT name, type, usage, line, col, usage_id, usage_context_id
            FROM user_identifiers
            WHERE object_name = :objectName AND usage = 'DECLARATION'`,
           { objectName },
         );
-        const iteratorResult = await cursor.execute(
+        const iteratorResult = await executor.execute(
           `SELECT DISTINCT usage_id FROM user_identifiers
            WHERE object_name = :objectName AND type = 'RECORD ITERATOR' AND usage = 'DECLARATION'`,
           { objectName },
@@ -302,6 +315,9 @@ export async function runNamingStandardValidator(taskId, taskDir, metadata, depe
       update: 'fix the schema credentials/connection settings, then rerun validation',
     })];
   } finally {
+    if (executor && executor !== connection && typeof executor.close === 'function') {
+      await executor.close().catch(() => undefined);
+    }
     if (connection) {
       await connection.close().catch(() => undefined);
     }

@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve as pathResolve, relative as pathRelative } from 'node:path';
 import { URL, URLSearchParams } from 'node:url';
 
@@ -397,6 +397,40 @@ export async function readTaskOutputFile(taskId, name, config) {
       modifiedAt: metadata.mtime.toISOString(),
       extension: readFileExtension(name),
       content,
+    };
+  } catch (error) {
+    throw asTaskOutputError(error, `File ${name} was not found for task ${taskId}.`);
+  }
+}
+
+export async function writeTaskOutputFile(taskId, name, content, config) {
+  if (!name) {
+    throw notFoundError('Select a file to save.');
+  }
+
+  const extension = readFileExtension(name);
+  if (!['txt', 'sql'].includes(extension)) {
+    throw Object.assign(new Error(`Only .txt and .sql files can be edited. Received: ${name}`), { statusCode: 400 });
+  }
+
+  try {
+    const filePath = resolveTaskOutputFilePath(taskId, name, config);
+    const metadata = await stat(filePath);
+
+    if (!metadata.isFile()) {
+      throw notFoundError(`File ${name} was not found for task ${taskId}.`);
+    }
+
+    await writeFile(filePath, typeof content === 'string' ? content : String(content ?? ''), 'utf8');
+    const updated = await stat(filePath);
+
+    return {
+      taskId,
+      name,
+      size: updated.size,
+      modifiedAt: updated.mtime.toISOString(),
+      extension,
+      content: typeof content === 'string' ? content : String(content ?? ''),
     };
   } catch (error) {
     throw asTaskOutputError(error, `File ${name} was not found for task ${taskId}.`);

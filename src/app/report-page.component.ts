@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
-import { Component, DestroyRef, OnInit, inject } from '@angular/core';
+import { Component, DestroyRef, ElementRef, OnInit, ViewChild, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { finalize, firstValueFrom } from 'rxjs';
 
@@ -8,6 +9,7 @@ import { DashboardApiService } from './dashboard-api.service';
 import {
   ConversationRow,
   TaskFilters,
+  ValidationChecklistEntry,
   TaskReport,
   TaskReportFile,
   TaskWorkflowAction,
@@ -42,28 +44,69 @@ interface ValidationFailureGroup {
     expected: string | null;
     update: string | null;
     sourceFile: string | null;
+    line: number | null;
   }>;
+}
+
+interface ValidationChecklistGroup {
+  key: string;
+  title: string;
+  rows: ValidationChecklistEntry[];
+}
+
+interface PreviewLogLine {
+  lineNumber: number;
+  text: string;
+  sourceFile: string | null;
+  sourceLine: number | null;
+}
+
+interface TopValidationAlert {
+  validator: string;
+  item: string;
+  turnId: number | null;
+  description: string | null;
+  present: string | null;
+  expected: string | null;
+  sourceFile: string | null;
+  line: number | null;
 }
 
 @Component({
   selector: 'app-report-page',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './report-page.component.html',
   styleUrl: './report-page.component.css',
 })
 export class ReportPageComponent implements OnInit {
+  private static readonly AUTO_SAVE_DELAY_MS = 500;
+  private static readonly AUTO_SAVE_RETRY_DELAY_MS = 2000;
   private readonly api = inject(DashboardApiService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
+  @ViewChild('fileEditor') private fileEditorRef?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('readOnlyPreview') private readOnlyPreviewRef?: ElementRef<HTMLElement>;
+  private autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveRequest: Promise<boolean> | null = null;
+  private validationStatusCache:
+    | {
+        report: ValidationMasterReport | null;
+        fileStates: Map<string, 'fail' | 'success'>;
+        turnStates: Map<string, 'fail' | 'success'>;
+      }
+    | null = null;
 
   taskId = '';
   report: TaskReport | null = null;
   selectedFileName = '';
+  selectedFileByGroup: Record<string, string> = {};
+  selectedFilePreference = '';
   fileGroups: FileGroup[] = [];
   activeGroupKey = 'all';
   fileContent: TaskReportFile | null = null;
   validationReport: ValidationMasterReport | null = null;
+  showCurrentFileErrorsOnly = false;
   loadingReport = false;
   loadingFile = false;
   error = '';
@@ -72,6 +115,13 @@ export class ReportPageComponent implements OnInit {
   loadingFetch = false;
   runningAction: TaskWorkflowAction | null = null;
   lastActionResult: TaskWorkflowActionResult | null = null;
+  editableContent = '';
+  editingFile = false;
+  savingFile = false;
+  pendingAutoSave = false;
+  lastSavedAt: string | null = null;
+  lastSaveError = '';
+  previewTargetLine: number | null = null;
   readonly workflowActions: Array<{ action: TaskWorkflowAction; label: string }> = [
     { action: 'validate', label: 'Re-Validate' },
     { action: 'generate-outputs', label: 'Generate Outputs' },
@@ -79,16 +129,27 @@ export class ReportPageComponent implements OnInit {
   ];
 
   ngOnInit(): void {
+    this.destroyRef.onDestroy(() => this.clearAutoSaveTimer());
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const taskId = params.get('taskId') ?? '';
 
       this.taskId = taskId;
       this.error = '';
       this.report = null;
+      this.selectedFileByGroup = {};
+      this.selectedFilePreference = '';
       this.fileGroups = [];
       this.activeGroupKey = 'all';
       this.fileContent = null;
+      this.editableContent = '';
+      this.editingFile = false;
+      this.pendingAutoSave = false;
+      this.lastSavedAt = null;
+      this.lastSaveError = '';
+      this.previewTargetLine = null;
       this.validationReport = null;
+      this.showCurrentFileErrorsOnly = false;
+      this.validationStatusCache = null;
       this.selectedFileName = '';
       this.actionError = '';
       this.actionMessage = '';
@@ -104,13 +165,23 @@ export class ReportPageComponent implements OnInit {
     });
   }
 
-  selectFile(name: string): void {
+  async selectFile(name: string, options?: { targetLine?: number | null }): Promise<void> {
     if (!this.taskId || !name) {
       return;
     }
 
+    const didFlush = await this.flushPendingEdits();
+    if (!didFlush) {
+      return;
+    }
+
     this.selectedFileName = name;
+    this.selectedFileByGroup[this.activeGroupKey] = name;
+    this.selectedFilePreference = this.getSelectionKey(name);
     this.loadingFile = true;
+    this.previewTargetLine = options?.targetLine ?? null;
+    this.clearAutoSaveTimer();
+    this.pendingAutoSave = false;
 
     this.api
       .getTaskReportFile(this.taskId, name)
@@ -118,16 +189,58 @@ export class ReportPageComponent implements OnInit {
       .subscribe({
         next: (file) => {
           this.fileContent = file;
+          this.editableContent = file.content;
+          this.editingFile = false;
+          this.lastSavedAt = null;
+          this.lastSaveError = '';
+          this.schedulePreviewNavigation();
         },
         error: (error: unknown) => {
           this.error = this.asErrorMessage(error);
           this.fileContent = null;
+          this.editableContent = '';
+          this.editingFile = false;
+          this.lastSavedAt = null;
+          this.lastSaveError = '';
+          this.previewTargetLine = null;
         },
       });
   }
 
   isSelectedFile(name: string): boolean {
     return this.selectedFileName === name;
+  }
+
+  getFileValidationState(fileName: string): 'fail' | 'success' | 'neutral' {
+    this.ensureValidationStatusCache();
+    return this.validationStatusCache?.fileStates.get(fileName) ?? 'neutral';
+  }
+
+  getGroupValidationState(groupKey: string): 'fail' | 'success' | 'neutral' {
+    if (!this.validationReport) {
+      return 'neutral';
+    }
+
+    this.ensureValidationStatusCache();
+
+    if (groupKey.startsWith('turn-')) {
+      return this.validationStatusCache?.turnStates.get(groupKey) ?? 'neutral';
+    }
+
+    const group = this.fileGroups.find((entry) => entry.key === groupKey);
+    if (!group?.files.length) {
+      return 'neutral';
+    }
+
+    const states = group.files
+      .map((file) => this.getFileValidationState(file))
+      .filter((state) => state !== 'neutral');
+
+    if (!states.length) {
+      return 'neutral';
+    }
+
+    return states.includes('fail') ? 'fail' : 'success';
   }
 
   async runWorkflowAction(action: TaskWorkflowAction): Promise<void> {
@@ -208,6 +321,10 @@ export class ReportPageComponent implements OnInit {
     return this.workflowActions.find((entry) => entry.action === action)?.label ?? action;
   }
 
+  private getSelectionKey(name: string): string {
+    return this.getShortFileLabel(name).trim().toLowerCase();
+  }
+
   getShortFileLabel(name: string): string {
     const normalizedName = name.replace(/\\/g, '/');
     const baseName = normalizedName.split('/').pop() ?? normalizedName;
@@ -221,7 +338,12 @@ export class ReportPageComponent implements OnInit {
     return this.activeGroupKey === key;
   }
 
-  showGroup(key: string): void {
+  async showGroup(key: string): Promise<void> {
+    const didFlush = await this.flushPendingEdits();
+    if (!didFlush) {
+      return;
+    }
+
     this.activeGroupKey = key;
 
     const files = this.visibleFiles;
@@ -229,11 +351,18 @@ export class ReportPageComponent implements OnInit {
     if (!files.length) {
       this.selectedFileName = '';
       this.fileContent = null;
+      this.editableContent = '';
+      this.editingFile = false;
+      this.pendingAutoSave = false;
+      this.lastSavedAt = null;
+      this.lastSaveError = '';
+      this.previewTargetLine = null;
       return;
     }
 
-    if (!files.some((file) => file.name === this.selectedFileName)) {
-      this.selectFile(files[0].name);
+    const preferredFile = this.resolvePreferredFile(files);
+    if (preferredFile && preferredFile !== this.selectedFileName) {
+      void this.selectFile(preferredFile);
     }
   }
 
@@ -262,6 +391,227 @@ export class ReportPageComponent implements OnInit {
     }
 
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  get isEditableFile(): boolean {
+    return this.fileContent ? ['txt', 'sql'].includes(this.fileContent.extension.toLowerCase()) : false;
+  }
+
+  get hasUnsavedChanges(): boolean {
+    return Boolean(this.fileContent) && this.isEditableFile && this.editableContent !== this.fileContent?.content;
+  }
+
+  get showEditor(): boolean {
+    return this.isEditableFile && this.editingFile;
+  }
+
+  get editorChangeMessage(): string {
+    if (!this.showEditor) {
+      return '';
+    }
+
+    if (this.savingFile) {
+      return 'Saving changes...';
+    }
+
+    if (this.lastSaveError && this.hasUnsavedChanges) {
+      return `Auto-save failed. Retrying... ${this.lastSaveError}`;
+    }
+
+    if (this.hasUnsavedChanges && this.pendingAutoSave) {
+      return 'Unsaved changes detected. Saving shortly...';
+    }
+
+    if (this.hasUnsavedChanges) {
+      return 'Unsaved changes detected.';
+    }
+
+    if (this.lastSavedAt) {
+      return `All changes saved at ${new Date(this.lastSavedAt).toLocaleTimeString()}.`;
+    }
+
+    return 'No unsaved changes.';
+  }
+
+  get previewStatusMessage(): string {
+    if (!this.fileContent || !this.previewTargetLine) {
+      return '';
+    }
+
+    return `Focused on validation source at line ${this.previewTargetLine}.`;
+  }
+
+  get fileContentLines(): string[] {
+    if (!this.fileContent) {
+      return [];
+    }
+
+    return this.fileContent.content.split(/\r?\n/);
+  }
+
+  get previewLogLines(): PreviewLogLine[] {
+    if (!this.fileContent) {
+      return [];
+    }
+
+    return this.fileContentLines.map((text, index) => {
+      const parsed = this.parseLogSourceLine(text);
+      return {
+        lineNumber: index + 1,
+        text,
+        sourceFile: parsed?.sourceFile ?? null,
+        sourceLine: parsed?.line ?? null,
+      };
+    });
+  }
+
+  get showStructuredLogView(): boolean {
+    return Boolean(this.fileContent && this.isLogFile(this.fileContent.name));
+  }
+
+  enableEditMode(): void {
+    if (!this.isEditableFile || !this.fileContent) {
+      return;
+    }
+
+    this.editingFile = true;
+    this.editableContent = this.fileContent.content;
+    this.pendingAutoSave = false;
+    this.lastSavedAt = null;
+    this.lastSaveError = '';
+    this.previewTargetLine = null;
+    setTimeout(() => this.focusPreviewTarget(), 0);
+  }
+
+  async cancelEditMode(): Promise<void> {
+    if (!this.fileContent || !this.isEditableFile) {
+      return;
+    }
+
+    const didFlush = await this.flushPendingEdits();
+    if (!didFlush) {
+      return;
+    }
+
+    this.clearAutoSaveTimer();
+    this.editingFile = false;
+    this.pendingAutoSave = false;
+    this.lastSaveError = '';
+    this.editableContent = this.fileContent.content;
+  }
+
+  handleEditableContentChange(content: string): void {
+    this.editableContent = content;
+    this.lastSaveError = '';
+
+    if (!this.showEditor) {
+      return;
+    }
+
+    if (!this.hasUnsavedChanges) {
+      this.clearAutoSaveTimer();
+      this.pendingAutoSave = false;
+      return;
+    }
+
+    this.pendingAutoSave = true;
+    this.clearAutoSaveTimer();
+    this.autoSaveTimer = setTimeout(() => {
+      void this.persistEditableFile('auto');
+    }, ReportPageComponent.AUTO_SAVE_DELAY_MS);
+  }
+
+  saveEditableFile(): void {
+    void this.persistEditableFile('manual');
+  }
+
+  resetEditableFile(): void {
+    if (!this.fileContent || !this.showEditor) {
+      return;
+    }
+
+    this.clearAutoSaveTimer();
+    this.pendingAutoSave = false;
+    this.lastSaveError = '';
+    this.editableContent = this.fileContent.content;
+  }
+
+  handleEditorKeydown(event: KeyboardEvent): void {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      if (this.hasUnsavedChanges && !this.savingFile) {
+        this.saveEditableFile();
+      }
+      return;
+    }
+
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    event.preventDefault();
+
+    const target = event.target;
+    if (!(target instanceof HTMLTextAreaElement)) {
+      return;
+    }
+
+    const start = target.selectionStart ?? 0;
+    const end = target.selectionEnd ?? start;
+    const nextValue = `${this.editableContent.slice(0, start)}\t${this.editableContent.slice(end)}`;
+
+    this.editableContent = nextValue;
+
+    queueMicrotask(() => {
+      target.selectionStart = start + 1;
+      target.selectionEnd = start + 1;
+    });
+  }
+
+  async handleEditorBlur(): Promise<void> {
+    await this.persistEditableFile('auto');
+  }
+
+  async jumpToValidationSource(sourceFile: string | null, line: number | null): Promise<void> {
+    if (!sourceFile) {
+      return;
+    }
+
+    const didFlush = await this.flushPendingEdits();
+    if (!didFlush) {
+      return;
+    }
+
+    const resolvedFile = this.resolveReportFileName(sourceFile);
+    if (!resolvedFile) {
+      this.actionError = `Could not locate ${sourceFile} in the task output.`;
+      return;
+    }
+
+    const owningGroup = this.fileGroups.find((group) => group.files.includes(resolvedFile));
+    if (owningGroup) {
+      this.activeGroupKey = owningGroup.key;
+    }
+
+    this.actionError = '';
+    this.actionMessage = line ? `Opened ${resolvedFile} at line ${line}.` : `Opened ${resolvedFile}.`;
+    await this.selectFile(resolvedFile, { targetLine: line });
+  }
+
+  formatSourceLocation(sourceFile: string | null, line: number | null): string {
+    if (!sourceFile) {
+      return 'No source location';
+    }
+
+    return line ? `${sourceFile}:${line}` : sourceFile;
+  }
+
+  logSourceLabel(line: PreviewLogLine): string {
+    return this.formatSourceLocation(line.sourceFile, line.sourceLine);
+  }
+
+  isTargetPreviewLine(lineNumber: number): boolean {
+    return this.previewTargetLine === lineNumber;
   }
 
   get validationSections(): ValidationSection[] {
@@ -384,8 +734,14 @@ export class ReportPageComponent implements OnInit {
       return [];
     }
 
+    const rows = this.showCurrentFileErrorsOnly
+      ? this.validationReport.results.filter(
+          (entry) => entry.status === 'FAIL' && this.matchesCurrentFile(entry.sourceFile),
+        )
+      : this.validationReport.results.filter((entry) => entry.status === 'FAIL');
+
     const groups = new Map<string, ValidationFailureGroup>();
-    for (const row of this.validationReport.results.filter((entry) => entry.status === 'FAIL')) {
+    for (const row of rows) {
       const key = `${row.validator}|${row.turnId ?? 'task'}`;
       const title = row.turnId === null ? `${row.validator} - Task` : `${row.validator} - Turn ${row.turnId}`;
       const existing = groups.get(key) ?? { key, title, rows: [] };
@@ -395,11 +751,112 @@ export class ReportPageComponent implements OnInit {
         expected: row.expected,
         update: row.update,
         sourceFile: row.sourceFile,
+        line: row.line,
       });
       groups.set(key, existing);
     }
 
     return [...groups.values()];
+  }
+
+  get validationChecklistGroups(): ValidationChecklistGroup[] {
+    if (!this.validationReport?.checklist?.length) {
+      return [];
+    }
+
+    const rows = this.showCurrentFileErrorsOnly
+      ? this.validationReport.checklist.filter(
+          (row) => row.status === 'FAIL' && this.matchesCurrentFile(row.sourceFile),
+        )
+      : this.validationReport.checklist;
+
+    const groups = new Map<string, ValidationChecklistGroup>();
+    for (const row of rows) {
+      const key = `${row.category}|${row.validator}`;
+      const title = `${this.toDisplayLabel(row.category)} - ${row.validator}`;
+      const existing = groups.get(key) ?? { key, title, rows: [] };
+      existing.rows.push(row);
+      groups.set(key, existing);
+    }
+
+    return [...groups.values()].map((group) => ({
+      ...group,
+      rows: [...group.rows].sort((left, right) => left.item.localeCompare(right.item, undefined, { sensitivity: 'base' })),
+    }));
+  }
+
+  get topValidationAlerts(): TopValidationAlert[] {
+    if (!this.validationReport) {
+      return [];
+    }
+
+    return this.validationReport.results
+      .filter((entry) => entry.status === 'FAIL')
+      .slice(0, 5)
+      .map((entry) => ({
+        validator: entry.validator,
+        item: entry.item,
+        turnId: entry.turnId,
+        description: null,
+        present: entry.present,
+        expected: entry.expected,
+        sourceFile: entry.sourceFile,
+        line: entry.line,
+      }));
+  }
+
+  get hasMoreValidationAlerts(): boolean {
+    return Boolean(this.validationReport && this.validationReport.results.filter((entry) => entry.status === 'FAIL').length > this.topValidationAlerts.length);
+  }
+
+  get totalValidationFailures(): number {
+    return this.validationReport?.summary.itemsFailed ?? 0;
+  }
+
+  get showSummarySections(): boolean {
+    return !this.showCurrentFileErrorsOnly;
+  }
+
+  get hasValidationContent(): boolean {
+    return (
+      (this.showSummarySections &&
+        (this.lastActionSummary.length > 0 || this.validationSummarySections.length > 0 || this.validationSections.length > 0)) ||
+      this.validationChecklistGroups.length > 0 ||
+      this.validationFailureGroups.length > 0
+    );
+  }
+
+  formatValidationAlertTitle(alert: TopValidationAlert): string {
+    const scope = alert.turnId === null ? 'Task' : `Turn ${alert.turnId}`;
+    return `${alert.validator} - ${scope} - ${alert.item}`;
+  }
+
+  describeChecklistTest(row: ValidationChecklistEntry): string {
+    return row.description || row.item;
+  }
+
+  describeChecklistExpectation(row: ValidationChecklistEntry): string {
+    return row.expected || row.description || 'This validation check is expected to pass.';
+  }
+
+  describeChecklistFinding(row: ValidationChecklistEntry): string {
+    if (row.status === 'PASS') {
+      return row.present || 'Check passed.';
+    }
+
+    if (row.status === 'FAIL') {
+      return row.present || 'Check failed.';
+    }
+
+    return 'Check not run.';
+  }
+
+  describeChecklistSource(row: ValidationChecklistEntry): string {
+    if (!row.sourceFile) {
+      return 'N/A';
+    }
+
+    return row.line ? `${row.sourceFile} (Line ${row.line})` : row.sourceFile;
   }
 
   private loadReport(taskId: string): void {
@@ -410,13 +867,20 @@ export class ReportPageComponent implements OnInit {
       .pipe(finalize(() => (this.loadingReport = false)))
       .subscribe({
         next: (report) => {
+          const currentGroupKey = this.activeGroupKey;
           this.report = report;
           this.fileGroups = this.buildFileGroups(report);
-          this.activeGroupKey = this.fileGroups[0]?.key ?? 'all';
+          this.validationStatusCache = null;
+          this.activeGroupKey = this.fileGroups.some((group) => group.key === currentGroupKey)
+            ? currentGroupKey
+            : this.fileGroups[0]?.key ?? 'all';
           void this.loadPersistedValidationReport(report);
 
           if (report.files.length) {
-            this.selectFile(this.visibleFiles[0]?.name ?? report.files[0].name);
+            const preferredFile = this.resolvePreferredFile(this.visibleFiles);
+            if (preferredFile) {
+              void this.selectFile(preferredFile);
+            }
           }
         },
         error: (error: unknown) => {
@@ -443,11 +907,6 @@ export class ReportPageComponent implements OnInit {
   }
 
   private buildFileGroups(report: TaskReport): FileGroup[] {
-    const allGroup: FileGroup = {
-      key: 'all',
-      label: `All files (${report.files.length})`,
-      files: report.files.map((file) => file.name),
-    };
     const generalFiles: string[] = [];
     const logFiles: string[] = [];
     const validationFiles: string[] = [];
@@ -476,7 +935,17 @@ export class ReportPageComponent implements OnInit {
       turnGroups.set(turn, existing);
     }
 
-    const groups: FileGroup[] = [allGroup];
+    const groups: FileGroup[] = [];
+
+    for (const turn of [...turnGroups.keys()].sort((left, right) => left - right)) {
+      const files = turnGroups.get(turn) ?? [];
+
+      groups.push({
+        key: `turn-${turn}`,
+        label: `Turn ${turn} (${files.length})`,
+        files,
+      });
+    }
 
     if (generalFiles.length) {
       groups.push({
@@ -502,17 +971,31 @@ export class ReportPageComponent implements OnInit {
       });
     }
 
-    for (const turn of [...turnGroups.keys()].sort((left, right) => left - right)) {
-      const files = turnGroups.get(turn) ?? [];
+    return groups;
+  }
 
-      groups.push({
-        key: `turn-${turn}`,
-        label: `Turn ${turn} (${files.length})`,
-        files,
-      });
+  private resolvePreferredFile(files: TaskReport['files']): string | null {
+    if (!files.length) {
+      return null;
     }
 
-    return groups;
+    const rememberedForGroup = this.selectedFileByGroup[this.activeGroupKey];
+    if (rememberedForGroup && files.some((file) => file.name === rememberedForGroup)) {
+      return rememberedForGroup;
+    }
+
+    if (this.selectedFileName && files.some((file) => file.name === this.selectedFileName)) {
+      return this.selectedFileName;
+    }
+
+    if (this.selectedFilePreference) {
+      const matchingFile = files.find((file) => this.getSelectionKey(file.name) === this.selectedFilePreference);
+      if (matchingFile) {
+        return matchingFile.name;
+      }
+    }
+
+    return files[0]?.name ?? null;
   }
 
   private buildTypeSpecificSection(extension: string, content: string): ValidationSection | null {
@@ -623,14 +1106,17 @@ export class ReportPageComponent implements OnInit {
     const masterReport = report.files.find((file) => /_validation[\\/]+master_validator_task_/i.test(file.name));
     if (!masterReport || !this.taskId) {
       this.validationReport = null;
+      this.validationStatusCache = null;
       return;
     }
 
     try {
       const file = await firstValueFrom(this.api.getTaskReportFile(this.taskId, masterReport.name));
       this.validationReport = JSON.parse(file.content) as ValidationMasterReport;
+      this.validationStatusCache = null;
     } catch {
       this.validationReport = null;
+      this.validationStatusCache = null;
     }
   }
 
@@ -642,26 +1128,307 @@ export class ReportPageComponent implements OnInit {
     try {
       const file = await firstValueFrom(this.api.getTaskReportFile(this.taskId, result.reports.master));
       this.validationReport = JSON.parse(file.content) as ValidationMasterReport;
+      this.validationStatusCache = null;
     } catch {
       this.validationReport = null;
+      this.validationStatusCache = null;
     }
+  }
+
+  private ensureValidationStatusCache(): void {
+    if (this.validationStatusCache?.report === this.validationReport) {
+      return;
+    }
+
+    const fileStates = new Map<string, 'fail' | 'success'>();
+    const turnStates = new Map<string, 'fail' | 'success'>();
+    const report = this.validationReport;
+
+    if (report) {
+      const applyState = (
+        map: Map<string, 'fail' | 'success'>,
+        key: string | null | undefined,
+        state: 'fail' | 'success',
+      ): void => {
+        if (!key) {
+          return;
+        }
+
+        const current = map.get(key);
+        if (current === 'fail') {
+          return;
+        }
+
+        if (state === 'fail' || !current) {
+          map.set(key, state);
+        }
+      };
+
+      for (const row of report.results) {
+        const state: 'fail' | 'success' = row.status === 'FAIL' ? 'fail' : 'success';
+        const resolvedFile = row.sourceFile ? this.resolveReportFileName(row.sourceFile) : null;
+        applyState(fileStates, resolvedFile, state);
+        applyState(turnStates, row.turnId === null ? null : `turn-${row.turnId}`, state);
+      }
+
+      for (const row of report.checklist) {
+        if (row.status === 'NOT_RUN') {
+          continue;
+        }
+
+        const state: 'fail' | 'success' = row.status === 'FAIL' ? 'fail' : 'success';
+        const resolvedFile = row.sourceFile ? this.resolveReportFileName(row.sourceFile) : null;
+        applyState(fileStates, resolvedFile, state);
+        applyState(turnStates, row.turnId === null ? null : `turn-${row.turnId}`, state);
+      }
+    }
+
+    this.validationStatusCache = {
+      report,
+      fileStates,
+      turnStates,
+    };
+  }
+
+  private schedulePreviewNavigation(): void {
+    if (!this.previewTargetLine || !this.fileContent) {
+      return;
+    }
+
+    setTimeout(() => this.focusPreviewTarget(), 0);
+  }
+
+  private async persistEditableFile(mode: 'auto' | 'manual', options: { silent?: boolean } = {}): Promise<boolean> {
+    if (!this.taskId || !this.fileContent || !this.showEditor || !this.hasUnsavedChanges) {
+      return true;
+    }
+
+    if (this.saveRequest) {
+      return this.saveRequest;
+    }
+
+    this.clearAutoSaveTimer();
+    this.savingFile = true;
+    this.pendingAutoSave = false;
+    this.actionError = '';
+    if (mode === 'manual' && !options.silent) {
+      this.actionMessage = `Saving ${this.fileContent.name}...`;
+    }
+
+    this.saveRequest = (async () => {
+      try {
+        const file = await firstValueFrom(this.api.saveTaskReportFile(this.taskId, this.fileContent!.name, this.editableContent));
+        this.fileContent = file;
+        this.editableContent = file.content;
+        this.lastSavedAt = file.modifiedAt;
+        this.lastSaveError = '';
+        this.syncReportFileMetadata(file);
+        if (mode === 'manual' && !options.silent) {
+          this.actionMessage = `Saved ${file.name}.`;
+        }
+        return true;
+      } catch (error) {
+        this.actionError = this.asErrorMessage(error);
+        this.lastSaveError = this.actionError;
+        if (this.hasUnsavedChanges) {
+          this.pendingAutoSave = true;
+          this.queueAutoSaveRetry();
+        }
+        return false;
+      } finally {
+        this.savingFile = false;
+        this.saveRequest = null;
+      }
+    })();
+
+    return this.saveRequest;
+  }
+
+  private async flushPendingEdits(): Promise<boolean> {
+    if (!this.showEditor || !this.hasUnsavedChanges) {
+      return true;
+    }
+
+    return this.persistEditableFile('manual', { silent: true });
+  }
+
+  private focusPreviewTarget(): void {
+    if (!this.previewTargetLine || !this.fileContent) {
+      return;
+    }
+
+    if (this.showEditor) {
+      const editor = this.fileEditorRef?.nativeElement;
+      if (!editor) {
+        return;
+      }
+
+      const offset = this.findLineOffset(this.editableContent, this.previewTargetLine);
+      const lineHeight = Number.parseFloat(getComputedStyle(editor).lineHeight) || 22;
+      editor.focus();
+      editor.selectionStart = offset;
+      editor.selectionEnd = offset;
+      editor.scrollTop = Math.max(0, (this.previewTargetLine - 1) * lineHeight - editor.clientHeight / 3);
+      return;
+    }
+
+    const preview = this.readOnlyPreviewRef?.nativeElement;
+    if (!preview) {
+      return;
+    }
+
+    const target = preview.querySelector<HTMLElement>(`[data-line="${this.previewTargetLine}"]`);
+    if (!target) {
+      return;
+    }
+
+    preview.scrollTop = Math.max(0, target.offsetTop - preview.clientHeight / 3);
+  }
+
+  private findLineOffset(content: string, lineNumber: number): number {
+    if (lineNumber <= 1) {
+      return 0;
+    }
+
+    let currentLine = 1;
+    for (let index = 0; index < content.length; index += 1) {
+      if (content[index] !== '\n') {
+        continue;
+      }
+
+      currentLine += 1;
+      if (currentLine === lineNumber) {
+        return index + 1;
+      }
+    }
+
+    return content.length;
+  }
+
+  private resolveReportFileName(sourceFile: string): string | null {
+    if (!this.report) {
+      return null;
+    }
+
+    const normalizedSource = sourceFile.replace(/\\/g, '/').toLowerCase();
+    const exactMatch = this.report.files.find((file) => file.name.replace(/\\/g, '/').toLowerCase() === normalizedSource);
+    if (exactMatch) {
+      return exactMatch.name;
+    }
+
+    const sourceBaseName = normalizedSource.split('/').pop();
+    if (!sourceBaseName) {
+      return null;
+    }
+
+    const baseMatch = this.report.files.find((file) => {
+      const normalizedFile = file.name.replace(/\\/g, '/').toLowerCase();
+      return normalizedFile.split('/').pop() === sourceBaseName;
+    });
+
+    return baseMatch?.name ?? null;
+  }
+
+  private matchesCurrentFile(sourceFile: string | null): boolean {
+    if (!sourceFile || !this.selectedFileName) {
+      return false;
+    }
+
+    return this.resolveReportFileName(sourceFile) === this.selectedFileName;
+  }
+
+  private syncReportFileMetadata(file: TaskReportFile): void {
+    if (!this.report) {
+      return;
+    }
+
+    this.report = {
+      ...this.report,
+      files: this.report.files.map((entry) =>
+        entry.name === file.name
+          ? {
+              ...entry,
+              size: file.size,
+              modifiedAt: file.modifiedAt,
+              extension: file.extension,
+            }
+          : entry,
+      ),
+    };
+  }
+
+  private parseLogSourceLine(text: string): { sourceFile: string; line: number | null } | null {
+    const match = text.match(/^\s*source\s*:\s+(.+?)(?:\s+line\s+(\d+))?\s*$/i);
+    if (!match) {
+      return null;
+    }
+
+    const sourceFile = match[1]?.trim();
+    if (!sourceFile) {
+      return null;
+    }
+
+    return {
+      sourceFile,
+      line: match[2] ? Number.parseInt(match[2], 10) : null,
+    };
   }
 
   private escapeForRegex(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  private clearAutoSaveTimer(): void {
+    if (!this.autoSaveTimer) {
+      return;
+    }
+
+    clearTimeout(this.autoSaveTimer);
+    this.autoSaveTimer = null;
+  }
+
+  private queueAutoSaveRetry(): void {
+    if (!this.showEditor || !this.hasUnsavedChanges) {
+      return;
+    }
+
+    this.clearAutoSaveTimer();
+    this.autoSaveTimer = setTimeout(() => {
+      void this.persistEditableFile('auto');
+    }, ReportPageComponent.AUTO_SAVE_RETRY_DELAY_MS);
+  }
+
   private asTone(success: boolean): 'good' | 'warn' {
     return success ? 'good' : 'warn';
   }
 
+  checklistTone(status: ValidationChecklistEntry['status']): 'good' | 'warn' | 'neutral' {
+    if (status === 'PASS') {
+      return 'good';
+    }
+    if (status === 'FAIL') {
+      return 'warn';
+    }
+    return 'neutral';
+  }
+
   private asErrorMessage(error: unknown): string {
     if (typeof error === 'object' && error !== null && 'error' in error) {
-      const nested = (error as { error?: { message?: string } }).error?.message;
+      const nested = (error as { error?: { message?: string } | string }).error;
 
-      if (nested) {
+      if (typeof nested === 'string' && nested.trim()) {
         return nested;
       }
+
+      const nestedMessage = typeof nested === 'object' && nested !== null && 'message' in nested ? nested.message : null;
+
+      if (typeof nestedMessage === 'string' && nestedMessage.trim()) {
+        return nestedMessage;
+      }
+    }
+
+    if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string' && error.message.trim()) {
+      return error.message;
     }
 
     if (error instanceof Error) {
@@ -669,6 +1436,14 @@ export class ReportPageComponent implements OnInit {
     }
 
     return 'Something went wrong while loading report output.';
+  }
+
+  private toDisplayLabel(value: string): string {
+    return value
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
   }
 }
 

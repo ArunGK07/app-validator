@@ -1,7 +1,12 @@
 .shell {
-  min-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
   padding: 24px;
-  --app-topbar-offset: 118px;
+  --app-topbar-height: 86px;
+  --app-topbar-offset: calc(var(--app-topbar-height) + 32px);
 }
 
 .topbar {
@@ -57,12 +62,16 @@ h1 {
 
 .content {
   margin: 0 auto;
+  min-height: 0;
+  overflow: auto;
+  width: 100%;
 }
 
 @media (max-width: 720px) {
   .shell {
+    height: 100dvh;
+    max-height: 100dvh;
     padding: 16px;
-    --app-topbar-offset: 152px;
   }
 
   .topbar {

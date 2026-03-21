@@ -22,7 +22,7 @@ const REQUIREMENT_NAMING_RULES = {
   OBJECT: ['rec_', 't_'],
 };
 const PARAMETER_GROUP_RE = /^[A-Za-z][A-Za-z0-9_$#]*\s*:\s*$/;
-const PARAMETER_LINE_RE = /^[A-Za-z][A-Za-z0-9_$#]*\s*-\s*(?:IN\s+OUT|INOUT|IN|OUT)\s*-\s*.+?\s*--\s*.+$/i;
+const PARAMETER_LINE_RE = /^[A-Za-z][A-Za-z0-9_$#]*\s*-\s*(?:IN\s+OUT|INOUT|IN|OUT|LOCAL)\s*-\s*.+?\s*--\s*.+$/i;
 const OUTPUT_GROUP_RE = /^[A-Za-z][A-Za-z0-9_$#]*\s*:\s*$/;
 const EXCEPTION_LINE_RE = /^.+\s:\s+.+$/;
 const HTML_TAG_RE = /<\s*\/?\s*(?:a|abbr|article|aside|b|blockquote|body|br|code|div|em|footer|form|h[1-6]|head|header|hr|html|i|img|input|label|li|link|main|meta|nav|ol|p|pre|script|section|small|span|strong|style|sub|sup|table|tbody|td|textarea|th|thead|title|tr|u|ul)\b[^>]*>/i;
@@ -68,14 +68,14 @@ function parseRequirementEntries(lines, index) {
   }
 
   const stop = Math.min(...Object.values(index).filter((lineIndex) => lineIndex > start), lines.length);
-  const body = lines.slice(start + 1, stop);
+  const body = lines
+    .slice(start + 1, stop)
+    .map((line) => line.replace(/\r$/, ''))
+    .filter((line) => line.trim());
   const entries = [];
 
   for (let cursor = 0; cursor < body.length; cursor += 1) {
     const line = body[cursor].trim();
-    if (!line) {
-      continue;
-    }
 
     const isHeader =
       /^Procedure Name:$/i.test(line) ||
@@ -97,10 +97,6 @@ function parseRequirementEntries(lines, index) {
     let foundValue = null;
     while (cursor + 1 < body.length) {
       const value = body[cursor + 1].trim();
-      if (!value) {
-        cursor += 1;
-        continue;
-      }
       if (/:$/.test(value)) {
         break;
       }
@@ -121,7 +117,9 @@ function parseRequirementEntries(lines, index) {
 
 function countRequirementPrograms(lines, index) {
   const parsed = parseRequirementEntries(lines, index);
-  return parsed.entries.filter(([label]) => ['Procedure Name:', 'Function Name:', 'Package Name:', 'Trigger Name:', 'Object Name:'].includes(label)).length;
+  return parsed.entries.filter(([label]) =>
+    ['Procedure Name:', 'Function Name:', 'Package Name:', 'Trigger Name:', 'Object Name:', 'Anonymous Block:'].includes(label),
+  ).length;
 }
 
 function structuralSectionResult(taskId, turnNumber, lines, index, item, sectionKey, sourceName, optional = false) {

@@ -40,6 +40,11 @@ export class DashboardApiService {
     return this.http.get<TaskReportFile>(`/api/reports/${encodeURIComponent(taskId)}/file`, { params });
   }
 
+  saveTaskReportFile(taskId: string, name: string, content: string): Observable<TaskReportFile> {
+    const params = new HttpParams().set('name', name);
+    return this.http.put<TaskReportFile>(`/api/reports/${encodeURIComponent(taskId)}/file`, { content }, { params });
+  }
+
   runTaskWorkflowAction(taskId: string, action: TaskWorkflowAction): Observable<TaskWorkflowActionResult> {
     return this.http.post<TaskWorkflowActionResult>(`/api/tasks/${encodeURIComponent(taskId)}/actions/${encodeURIComponent(action)}`, {});
   }

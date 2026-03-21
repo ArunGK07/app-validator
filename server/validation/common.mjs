@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { formatTaskArtifactName } from '../workspace-config.mjs';
+import { buildValidationChecklist, VALIDATION_CHECKLIST_CATALOG } from './checklist.mjs';
 
 export const VALIDATOR_NAMES = {
   promptStructure: 'PromptStructureValidator',
@@ -153,6 +154,7 @@ export async function writeMasterValidationReport(reportPath, taskId, validatorR
   const itemsSummary = summarizeResults(allResults);
   const validatorsPassed = validatorReports.filter((entry) => entry.summary.failed === 0).length;
   const validatorsFailed = validatorReports.length - validatorsPassed;
+  const checklist = buildValidationChecklist(validatorReports);
 
   const payload = {
     validator: VALIDATOR_NAMES.master,
@@ -176,6 +178,8 @@ export async function writeMasterValidationReport(reportPath, taskId, validatorR
       success: entry.summary.failed === 0,
       reportFile: entry.reportFile,
     })),
+    checklistCatalog: VALIDATION_CHECKLIST_CATALOG,
+    checklist,
     results: allResults,
   };
 
