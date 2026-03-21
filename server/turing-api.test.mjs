@@ -1,0 +1,558 @@
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  buildBatchesUrl,
+  buildConversationsUrl,
+  buildConversationsUrls,
+  buildPassthroughUrl,
+  buildReviewsUrl,
+  buildSchemaWarmupConversationsUrl,
+  buildCurrentUserUrl,
+  fetchBatches,
+  fetchConversations,
+  fetchTeamMembers,
+  fetchRawConversations,
+  findPromptIdentifier,
+  getProxyHealth,
+  inferBusinessStatus,
+  inferCurrentStatus,
+  inferComplexity,
+  inferTurnCount,
+  listTaskOutputFiles,
+  normalizeConversation,
+  readTaskOutputFile,
+  resolveTaskSchemaInfo,
+  summarizeMetadata,
+} from './turing-api.mjs';
+
+const config = {
+  cookie: 'cookie=value',
+  labelingBaseUrl: 'https://labeling-o.turing.com',
+  projectId: '57',
+};
+
+test('getProxyHealth reports missing cookie clearly', () => {
+  assert.deepEqual(getProxyHealth({ cookie: '' }), {
+    configured: false,
+    message: 'Set TURING_COOKIE in .env.local before fetching live data.',
+  });
+});
+
+test('all status uses a single broad query for the selected user', () => {
+  const urls = buildConversationsUrls({ userId: '463', status: 'all', taskId: '' }, config);
+  const url = new URL(urls[0]);
+
+  assert.equal(urls.length, 1);
+  assert.equal(url.searchParams.get('sort[0]'), 'updatedAt,DESC');
+  assert.equal(url.searchParams.get('filter[0]'), 'batch.status||$ne||draft');
+  assert.equal(url.searchParams.get('filter[1]'), 'project.status||$ne||archived');
+  assert.equal(url.searchParams.get('filter[5]'), '$claimedBy||$in||463');
+  assert.equal(url.searchParams.get('filter[6]'), null);
+});
+
+test('in progress uses the provided task list query and adds user and task filters', () => {
+  const url = new URL(
+    buildConversationsUrl({ userId: '463', status: 'in-progress', taskId: '42' }, config),
+  );
+
+  assert.equal(url.searchParams.get('limit'), '10');
+  assert.equal(url.searchParams.get('filter[0]'), 'status||$eq||labeling');
+  assert.equal(url.searchParams.get('filter[1]'), 'status||$in||labeling,validating');
+  assert.equal(url.searchParams.get('filter[7]'), '$claimedBy||$in||463');
+  assert.equal(url.searchParams.get('filter[8]'), 'id||$eq||42');
+});
+
+test('rework uses the rework query shape and sorting', () => {
+  const url = new URL(buildConversationsUrl({ userId: '', status: 'rework', taskId: '' }, config));
+
+  assert.equal(url.searchParams.get('sort[0]'), 'updatedAt,DESC');
+  assert.equal(url.searchParams.get('filter[0]'), 'status||$eq||rework');
+  assert.equal(url.searchParams.get('filter[1]'), 'batch.status||$ne||draft');
+});
+
+test('completed uses followup filter', () => {
+  const url = new URL(buildConversationsUrl({ userId: '', status: 'completed', taskId: '' }, config));
+
+  assert.equal(url.searchParams.get('limit'), '50');
+  assert.equal(url.searchParams.get('filter[0]'), 'status||$eq||completed');
+  assert.equal(url.searchParams.get('filter[1]'), '$needFollowup||$eq||true');
+});
+
+test('reviewed once uses the manual review followup false filter', () => {
+  const url = new URL(buildConversationsUrl({ userId: '', status: 'reviewed-once', taskId: '' }, config));
+
+  assert.equal(url.searchParams.get('limit'), '30');
+  assert.equal(url.searchParams.get('filter[0]'), 'status||$eq||completed');
+  assert.equal(url.searchParams.get('filter[2]'), 'manualReview.followupRequired||$eq||false');
+});
+
+test('selected batch adds a batch filter to the conversations query', () => {
+  const url = new URL(buildConversationsUrl({ userId: '', status: 'all', taskId: '', batchId: '172,201' }, config));
+
+  assert.equal(url.searchParams.get('filter[5]'), 'batchId||$in||172,201');
+});
+
+test('buildCurrentUserUrl points to auth me endpoint', () => {
+  assert.equal(buildCurrentUserUrl(config), 'https://labeling-o.turing.com/api/auth/me');
+});
+
+test('buildBatchesUrl points to the labeling batches endpoint with project filters', () => {
+  const url = new URL(buildBatchesUrl(config));
+
+  assert.equal(url.origin + url.pathname, 'https://labeling-o.turing.com/api/batches');
+  assert.equal(url.searchParams.get('sort[0]'), 'projectId,DESC');
+  assert.equal(url.searchParams.get('sort[1]'), 'id,DESC');
+  assert.equal(url.searchParams.get('fields'), 'id,name,status,projectId,jibbleActivity');
+  assert.equal(url.searchParams.get('filter[0]'), 'status||$notin||draft');
+  assert.equal(url.searchParams.get('filter[1]'), 'projectId||$eq||57');
+  assert.equal(url.searchParams.get('filter[2]'), 'status||ne||archived');
+  assert.equal(url.searchParams.get('join[0]'), 'batchStats');
+});
+
+test('buildPassthroughUrl preserves the provided query without reshaping it', () => {
+  const url = new URL(
+    buildPassthroughUrl(
+      '/api/conversations',
+      {
+        'sort[0]': 'updatedAt,DESC',
+        limit: '10',
+        page: '1',
+        'join[0]': 'seed||metadata,turingMetadata',
+        'filter[0]': 'status||$eq||rework',
+        'filter[1]': 'batch.status||$ne||draft',
+      },
+      config.labelingBaseUrl,
+    ),
+  );
+
+  assert.equal(url.origin + url.pathname, 'https://labeling-o.turing.com/api/conversations');
+  assert.equal(url.searchParams.get('sort[0]'), 'updatedAt,DESC');
+  assert.equal(url.searchParams.get('limit'), '10');
+  assert.equal(url.searchParams.get('join[0]'), 'seed||metadata,turingMetadata');
+  assert.equal(url.searchParams.get('filter[0]'), 'status||$eq||rework');
+  assert.equal(url.searchParams.get('filter[1]'), 'batch.status||$ne||draft');
+});
+
+test('buildReviewsUrl points to reviews endpoint for a conversation', () => {
+  const url = new URL(buildReviewsUrl('9418', config));
+
+  assert.equal(url.origin + url.pathname, 'https://labeling-o.turing.com/api/reviews');
+  assert.equal(url.searchParams.get('conversationId'), '9418');
+  assert.equal(url.searchParams.get('join[0]'), 'conversation');
+});
+
+test('buildSchemaWarmupConversationsUrl includes joins needed by relational filters', () => {
+  const url = new URL(buildSchemaWarmupConversationsUrl(config));
+
+  assert.equal(url.origin + url.pathname, 'https://labeling-o.turing.com/api/conversations');
+  assert.equal(url.searchParams.get('join[0]'), 'seed||metadata,turingMetadata');
+  assert.equal(url.searchParams.get('join[1]'), 'project||id,status');
+  assert.equal(url.searchParams.get('join[2]'), 'batch||id,status,projectId');
+  assert.equal(url.searchParams.get('filter[0]'), 'batch.status||$ne||draft');
+  assert.equal(url.searchParams.get('filter[1]'), 'project.status||$ne||archived');
+});
+
+test('fetchTeamMembers includes the current user from auth me, dedupes by id, and keeps them first', async () => {
+  const originalFetch = global.fetch;
+  const requestedUrls = [];
+
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    requestedUrls.push(url);
+
+    assert.equal(init?.headers?.Cookie, config.cookie);
+
+    if (url === 'https://labeling-o.turing.com/api/contributors/my-team') {
+      return new Response(
+        JSON.stringify({
+          contributors: [
+            {
+              id: '050',
+              name: 'Aaron Stone',
+              turingEmail: 'aaron@turing.com',
+            },
+            {
+              id: '200',
+              name: 'Grace Hopper',
+              turingEmail: 'grace@turing.com',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    if (url === 'https://labeling-o.turing.com/api/auth/me') {
+      return new Response(
+        JSON.stringify({
+          data: {
+            id: '100',
+            firstName: 'Ada',
+            lastName: 'Lovelace',
+            email: 'ada@turing.com',
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    throw new Error('Unexpected URL ' + url);
+  };
+
+  try {
+    const members = await fetchTeamMembers(config);
+
+    assert.deepEqual(requestedUrls.sort(), [
+      'https://labeling-o.turing.com/api/auth/me',
+      'https://labeling-o.turing.com/api/contributors/my-team',
+    ]);
+    assert.deepEqual(members, [
+      { id: '100', name: 'Ada Lovelace', email: 'ada@turing.com' },
+      { id: '050', name: 'Aaron Stone', email: 'aaron@turing.com' },
+      { id: '200', name: 'Grace Hopper', email: 'grace@turing.com' },
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('fetchBatches loads, dedupes, and sorts batch options', async () => {
+  const originalFetch = global.fetch;
+  const requestedUrls = [];
+
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    requestedUrls.push(url);
+
+    assert.equal(init?.headers?.Cookie, config.cookie);
+
+    const parsed = new URL(url);
+
+    if (parsed.pathname === '/api/batches' && parsed.searchParams.get('page') === '1') {
+      return new Response(
+        JSON.stringify({
+          data: [
+            { id: '172', name: 'Practice' },
+            { id: '201', name: 'Production A' },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    throw new Error('Unexpected URL ' + url);
+  };
+
+  try {
+    const batches = await fetchBatches(config);
+
+    assert.equal(requestedUrls.length, 1);
+    assert.deepEqual(batches, [
+      { id: '172', name: 'Practice' },
+      { id: '201', name: 'Production A' },
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('fetchRawConversations returns the upstream payload unchanged', async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async (input, init) => {
+    const url = String(input);
+
+    assert.equal(
+      url,
+      'https://labeling-o.turing.com/api/conversations?sort%5B0%5D=updatedAt%2CDESC&limit=10&page=1&filter%5B0%5D=status%7C%7C%24eq%7C%7Crework',
+    );
+    assert.equal(init?.headers?.Cookie, config.cookie);
+
+    return new Response(
+      JSON.stringify({
+        data: [{ id: 9462, conversation: { colabLink: 'https://rlhf-v3.turing.com/prompt/c1a69f1e-9b9b-4b9b-8a29-e67bad592a60' } }],
+        meta: { page: 1 },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+
+  try {
+    const payload = await fetchRawConversations(
+      {
+        'sort[0]': 'updatedAt,DESC',
+        limit: '10',
+        page: '1',
+        'filter[0]': 'status||$eq||rework',
+      },
+      config,
+    );
+
+    assert.deepEqual(payload, {
+      data: [{ id: 9462, conversation: { colabLink: 'https://rlhf-v3.turing.com/prompt/c1a69f1e-9b9b-4b9b-8a29-e67bad592a60' } }],
+      meta: { page: 1 },
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('fetchConversations enriches missing collabLink values from reviews api', async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    assert.equal(init?.headers?.Cookie, config.cookie);
+
+    if (url.startsWith('https://labeling-o.turing.com/api/conversations?')) {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 9418,
+              status: 'labeling',
+              batch: { id: 172, name: 'practice_batch' },
+              currentUser: { name: 'Shivani s' },
+              seed: {
+                metadata: {
+                  batchId: 172,
+                  num_turns: '1',
+                  complexity: 'intermediate',
+                },
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    if (url === 'https://labeling-o.turing.com/api/reviews?conversationId=9418&join%5B0%5D=conversation') {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              conversation: {
+                colabLink: 'https://rlhf-v3.turing.com/prompt/c1a69f1e-9b9b-4b9b-8a29-e67bad592a60',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    throw new Error('Unexpected URL ' + url);
+  };
+
+  try {
+    const rows = await fetchConversations({ userId: '', status: 'in-progress', taskId: '', batchId: '' }, config);
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].taskId, '9418');
+    assert.equal(rows[0].collabLink, 'https://rlhf-v3.turing.com/prompt/c1a69f1e-9b9b-4b9b-8a29-e67bad592a60');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('resolveTaskSchemaInfo follows spider lite routing rules', () => {
+  assert.deepEqual(resolveTaskSchemaInfo({ dataset: 'Spider 2.0-Lite', database: 'GNOMAD' }), {
+    dataset: 'Spider 2.0-Lite',
+    database: 'GNOMAD',
+    schemaName: 'GNOMAD',
+    profile: 'spider_2_lite',
+  });
+});
+
+test('resolveTaskSchemaInfo follows spider snow routing rules', () => {
+  assert.deepEqual(resolveTaskSchemaInfo({ dataset: 'SPIDER 2.0-SNOW', database: 'SNOWDB' }), {
+    dataset: 'SPIDER 2.0-SNOW',
+    database: 'SNOWDB',
+    schemaName: 'SNOWDB',
+    profile: 'spider_2_snow',
+  });
+});
+
+test('resolveTaskSchemaInfo follows bigquery routing rules', () => {
+  assert.deepEqual(resolveTaskSchemaInfo({ dataset: 'CALIFORNIA_SCHOOLS', database: 'bigquery-public-data' }), {
+    dataset: 'CALIFORNIA_SCHOOLS',
+    database: 'bigquery-public-data',
+    schemaName: 'CALIFORNIA_SCHOOLS',
+    profile: 'bigquery_public_data',
+  });
+});
+
+test('findPromptIdentifier scans nested metadata', () => {
+  const promptId = findPromptIdentifier({
+    nested: {
+      deeper: {
+        promptUuid: 'd84082c2-b5f8-4870-938a-11ca6f78a2e6',
+      },
+    },
+  });
+
+  assert.equal(promptId, 'd84082c2-b5f8-4870-938a-11ca6f78a2e6');
+});
+
+test('inferBusinessStatus derives reviewed once from completed tasks with followup false', () => {
+  const status = inferBusinessStatus({
+    status: 'completed',
+    latestManualReview: { review: { followupRequired: false } },
+  });
+
+  assert.equal(status, 'Reviewed Once');
+});
+
+test('inferCurrentStatus prefers workflow state over top-level status', () => {
+  const status = inferCurrentStatus({
+    status: 'completed',
+    latestLabelingWorkflow: {
+      workflow: {
+        currentWorkflowStatus: 'waiting_for_reviewer',
+      },
+    },
+  });
+
+  assert.equal(status, 'Waiting For Reviewer');
+});
+
+test('inferTurnCount reads nested metadata values only', () => {
+  assert.equal(inferTurnCount({ task: { numTurns: 3 } }), '3');
+  assert.equal(inferTurnCount({ payload: { promptTurns: ['a', 'b'] } }), '2');
+  assert.equal(inferTurnCount('{}'), 'Unknown');
+});
+
+test('inferComplexity reads nested metadata values only', () => {
+  assert.equal(inferComplexity({ details: { difficultyLevel: { levelInfo: { name: 'hard' } } } }), 'Hard');
+  assert.equal(inferComplexity({ complexity: 'medium' }), 'Medium');
+  assert.equal(inferComplexity('{}'), 'Unknown');
+});
+
+test('summarizeMetadata keeps the full payload for the metadata drawer', () => {
+  const summary = summarizeMetadata({ data: 'x'.repeat(5000) });
+
+  assert.match(summary, /x{100}/);
+  assert.equal(summary.endsWith('...'), false);
+});
+
+test('normalizeConversation maps task fields for the dashboard and preserves business label', () => {
+  const row = normalizeConversation(
+    {
+      id: 99,
+      status: 'labeling',
+      batchId: '172',
+      batch: { name: 'Batch 172' },
+      currentUser: { name: 'Ada Lovelace' },
+      colabLink: '2677bee9-5ce0-4e1b-8f84-4e03588947cb',
+      seed: {
+        metadata: {
+          dataset: 'Spider 2.0-Lite',
+          database: 'GNOMAD',
+          promptId: 'prompt-123',
+          turns: [1, 2],
+          difficultyLevel: {
+            levelInfo: {
+              name: 'hard',
+            },
+          },
+        },
+      },
+      latestLabelingWorkflow: {
+        workflow: {
+          currentWorkflowStatus: 'waiting_for_reviewer',
+        },
+      },
+    },
+    'In Progress',
+  );
+
+  assert.equal(row.taskId, '99');
+  assert.equal(row.status, 'Waiting For Reviewer');
+  assert.equal(row.businessStatus, 'In Progress');
+  assert.equal(row.turnCount, '2');
+  assert.equal(row.complexity, 'Hard');
+  assert.equal(row.batchId, '172');
+  assert.equal(row.batch, 'Batch 172');
+  assert.equal(row.schemaName, 'GNOMAD');
+  assert.equal(row.assignedUser, 'Ada Lovelace');
+  assert.equal(row.promptId, 'prompt-123');
+  assert.equal(
+    row.collabLink,
+    'https://rlhf-v3.turing.com/prompt/2677bee9-5ce0-4e1b-8f84-4e03588947cb?origin=https%3A%2F%2Flabeling-o.turing.com&redirect_url=https%3A%2F%2Flabeling-o.turing.com%2Fconversations%2F99%2Fview',
+  );
+  assert.match(row.metadataPreview, /prompt-123/);
+});
+
+test('listTaskOutputFiles returns sorted files from the configured task folder including nested logs', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-report-'));
+  const taskDir = join(root, '24696');
+  const logsDir = join(taskDir, '_logs');
+
+  try {
+    await mkdir(taskDir);
+    await mkdir(logsDir);
+    await writeFile(join(taskDir, '24696_turn2.txt'), 'turn 2');
+    await writeFile(join(taskDir, '24696_turn1.txt'), 'turn 1');
+    await writeFile(join(logsDir, 'validate-2026-03-21.log'), 'log output');
+
+    const report = await listTaskOutputFiles('24696', { taskOutputDir: root });
+
+    assert.equal(report.taskId, '24696');
+    assert.equal(report.folderPath, taskDir);
+    assert.deepEqual(
+      report.files.map((file) => file.name),
+      ['_logs/validate-2026-03-21.log', '24696_turn1.txt', '24696_turn2.txt'],
+    );
+    assert.equal(report.files[0].extension, 'log');
+    assert.equal(report.files[1].extension, 'txt');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('readTaskOutputFile returns file contents from the configured task folder', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-report-'));
+  const taskDir = join(root, '9479');
+  const filePath = join(taskDir, '9479_existing_output.json');
+
+  try {
+    await mkdir(taskDir);
+    await writeFile(filePath, '{\"ok\":true}');
+
+    const file = await readTaskOutputFile('9479', '9479_existing_output.json', { taskOutputDir: root });
+
+    assert.equal(file.taskId, '9479');
+    assert.equal(file.name, '9479_existing_output.json');
+    assert.equal(file.extension, 'json');
+    assert.equal(file.content, '{"ok":true}');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('readTaskOutputFile returns nested log file contents from the configured task folder', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-report-'));
+  const taskDir = join(root, '9479');
+  const logsDir = join(taskDir, '_logs');
+  const filePath = join(logsDir, 'validate-2026-03-21.log');
+
+  try {
+    await mkdir(logsDir, { recursive: true });
+    await writeFile(filePath, 'validation started');
+
+    const file = await readTaskOutputFile('9479', '_logs/validate-2026-03-21.log', { taskOutputDir: root });
+
+    assert.equal(file.taskId, '9479');
+    assert.equal(file.name, '_logs/validate-2026-03-21.log');
+    assert.equal(file.extension, 'log');
+    assert.equal(file.content, 'validation started');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+

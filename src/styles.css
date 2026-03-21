@@ -1,0 +1,39 @@
+:root {
+  color-scheme: light;
+  --bg: #f6efe4;
+  --panel: rgba(255, 252, 247, 0.92);
+  --panel-strong: #fffdf8;
+  --text: #1d1f21;
+  --muted: #62676f;
+  --line: #d8c7ad;
+  --accent: #03543f;
+  --accent-soft: #d9efe6;
+  --warn: #995f00;
+  --error: #9c2f2f;
+  --shadow: 0 18px 60px rgba(67, 42, 14, 0.12);
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(245, 180, 76, 0.2), transparent 28%),
+    linear-gradient(160deg, #f6efe4 0%, #f2f6ef 50%, #eef4f3 100%);
+  color: var(--text);
+}
+
+body {
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}

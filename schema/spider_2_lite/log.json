@@ -1,0 +1,1 @@
+{"database":"LOG","timestamp":"2026-03-21T08:40:18.565Z","_schema_definition":{"column_format":["name","data_type","nullable","column_id","data_length","data_precision","data_scale"],"note":"Each column is an array following the column_format order. nullable: 0=not null, 1=nullable"},"table_count":0,"tables":{}}

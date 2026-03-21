@@ -1,0 +1,189 @@
+<section class="report-shell">
+  <div class="report-header">
+    <div>
+      <p class="eyebrow">Validation report</p>
+      <h2 *ngIf="taskId; else genericHeading">Task {{ taskId }} output</h2>
+      <ng-template #genericHeading>
+        <h2>Task output</h2>
+      </ng-template>
+      <p *ngIf="report?.folderPath" class="report-path">{{ report?.folderPath }}</p>
+    </div>
+
+    <div class="header-actions">
+      <div *ngIf="taskId && !loadingReport" class="workflow-actions">
+        <button
+          type="button"
+          class="action-button"
+          [disabled]="isTaskActionDisabled()"
+          (click)="fetchTaskData()"
+        >
+          {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
+        </button>
+        <button
+          *ngFor="let workflow of workflowActions"
+          type="button"
+          class="action-button"
+          [disabled]="isTaskActionDisabled()"
+          (click)="runWorkflowAction(workflow.action)"
+        >
+          {{ isRunningAction(workflow.action) ? workflow.label + '...' : workflow.label }}
+        </button>
+      </div>
+
+      <a routerLink="/" class="link-button">Back to dashboard</a>
+    </div>
+  </div>
+
+  <div *ngIf="error" class="notice notice--error">{{ error }}</div>
+
+  <div *ngIf="!taskId" class="empty-state">
+    <h3>No task selected</h3>
+    <p>Open a task report from the dashboard to inspect the files available in its output folder.</p>
+  </div>
+
+  <div *ngIf="taskId && loadingReport" class="loading-card" role="status" aria-live="polite">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>Loading report files...</span>
+  </div>
+
+  <div *ngIf="taskId && !loadingReport && fileGroups.length" class="turn-nav">
+    <button
+      *ngFor="let group of fileGroups"
+      type="button"
+      class="turn-chip"
+      [class.turn-chip--active]="isActiveGroup(group.key)"
+      (click)="showGroup(group.key)"
+    >
+      {{ group.label }}
+    </button>
+  </div>
+
+  <div *ngIf="actionMessage" class="notice">{{ actionMessage }}</div>
+  <div *ngIf="actionError" class="notice notice--error">{{ actionError }}</div>
+
+  <div *ngIf="taskId && !loadingReport && report as currentReport" class="report-grid">
+    <aside class="file-list-panel">
+      <div class="file-list-header">
+        <strong>{{ visibleFiles.length }} files</strong>
+        <span>Select a file from the active turn.</span>
+      </div>
+
+      <div *ngIf="visibleFiles.length; else noFiles" class="file-list">
+        <button
+          *ngFor="let file of visibleFiles"
+          type="button"
+          class="file-item"
+          [class.file-item--active]="isSelectedFile(file.name)"
+          (click)="selectFile(file.name)"
+          [title]="file.name"
+        >
+          <span class="file-item__name">{{ getShortFileLabel(file.name) }}</span>
+          <span class="file-item__meta">{{ file.extension || 'file' }} | {{ formatFileSize(file.size) }}</span>
+        </button>
+      </div>
+
+      <ng-template #noFiles>
+        <div class="empty-state empty-state--compact">
+          <h3>No files found</h3>
+          <p>No files are available for the selected turn yet.</p>
+        </div>
+      </ng-template>
+    </aside>
+
+    <section class="file-preview-panel">
+      <div *ngIf="loadingFile" class="loading-card loading-card--inline" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Loading file content...</span>
+      </div>
+
+      <div *ngIf="!loadingFile && fileContent as file; else selectPrompt" class="file-preview">
+        <div class="file-preview__header">
+          <div>
+            <h3>{{ file.name }}</h3>
+            <p>{{ formatFileSize(file.size) }} | {{ file.modifiedAt | date: 'medium' }}</p>
+          </div>
+        </div>
+
+        <pre>{{ file.content }}</pre>
+      </div>
+
+      <ng-template #selectPrompt>
+        <div *ngIf="!visibleFiles.length" class="empty-state empty-state--compact">
+          <h3>No files found</h3>
+          <p>No files are available for the selected turn yet.</p>
+        </div>
+        <div *ngIf="visibleFiles.length && !loadingFile && !fileContent" class="empty-state empty-state--compact">
+          <h3>Select a file</h3>
+          <p>Choose a file from the left panel to preview its contents.</p>
+        </div>
+      </ng-template>
+    </section>
+
+    <aside class="validation-panel">
+      <div class="validation-panel__header">
+        <h3>Validation Report</h3>
+        <p *ngIf="fileContent; else validationPrompt">{{ fileContent.name }}</p>
+        <ng-template #validationPrompt>
+          <p>Select a file to inspect its validation summary.</p>
+        </ng-template>
+      </div>
+
+      <div *ngIf="lastActionSummary.length || validationSummarySections.length || validationSections.length; else noValidation" class="validation-sections">
+        <section *ngFor="let section of lastActionSummary" class="validation-card validation-card--workflow">
+          <h4>{{ section.title }}</h4>
+          <div class="validation-list">
+            <div *ngFor="let item of section.items" class="validation-item">
+              <span class="validation-item__label">{{ item.label }}</span>
+              <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
+                {{ item.value }}
+              </strong>
+            </div>
+          </div>
+        </section>
+
+        <section *ngFor="let section of validationSummarySections" class="validation-card validation-card--workflow">
+          <h4>{{ section.title }}</h4>
+          <div class="validation-list">
+            <div *ngFor="let item of section.items" class="validation-item">
+              <span class="validation-item__label">{{ item.label }}</span>
+              <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
+                {{ item.value }}
+              </strong>
+            </div>
+          </div>
+        </section>
+
+        <section *ngFor="let section of validationSections" class="validation-card">
+          <h4>{{ section.title }}</h4>
+          <div class="validation-list">
+            <div *ngFor="let item of section.items" class="validation-item">
+              <span class="validation-item__label">{{ item.label }}</span>
+              <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
+                {{ item.value }}
+              </strong>
+            </div>
+          </div>
+        </section>
+
+        <section *ngFor="let group of validationFailureGroups" class="validation-card">
+          <h4>{{ group.title }}</h4>
+          <div class="validation-list">
+            <div *ngFor="let row of group.rows" class="validation-item">
+              <span class="validation-item__label">{{ row.item }}</span>
+              <strong class="validation-item__value validation-item__value--warn">
+                {{ row.present || row.expected || 'Failed' }}
+              </strong>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <ng-template #noValidation>
+        <div class="empty-state empty-state--compact">
+          <h3>No validation report</h3>
+          <p>Select a file to see its validation details.</p>
+        </div>
+      </ng-template>
+    </aside>
+  </div>
+</section>

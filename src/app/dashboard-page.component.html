@@ -1,0 +1,277 @@
+<!-- <section class="hero">
+  <div class="hero-copy">
+    <p class="tag">Stage 1 live integration</p>
+    <h2>Fetch labeling conversations, inspect metadata, and prepare validation.</h2>
+    <p class="description">
+      Team members and conversations are loaded through the local proxy. Validate and report flows are already placed
+      in the UI and can be expanded next.
+    </p>
+  </div>
+
+  <div class="status-card" [class.status-card--ok]="health?.configured">
+    <p class="status-card__label">Proxy Status</p>
+    <strong>{{ health?.configured ? 'Cookie configured' : 'Cookie missing' }}</strong>
+    <span>{{ health?.message || 'Checking backend configuration...' }}</span>
+  </div>
+</section> -->
+
+<section class="panel panel-filters">
+  <form class="filters" [formGroup]="filtersForm">
+    <label>
+      <span>Batch</span>
+      <select formControlName="batchId">
+        <option value="">All batches</option>
+        <option *ngFor="let batch of batchOptions" [value]="batch.id">{{ batch.name }}</option>
+      </select>
+    </label>
+
+    <label>
+      <span>User</span>
+      <select formControlName="userId">
+        <option value="">All users</option>
+        <option *ngFor="let member of teamMembers" [value]="member.id">
+          {{ member.name }} <ng-container *ngIf="member.email">({{ member.email }})</ng-container>
+        </option>
+      </select>
+    </label>
+
+    <label>
+      <span>Task ID</span>
+      <input formControlName="taskIdQuery" type="text" list="task-id-options" placeholder="Type a task id" />
+      <datalist id="task-id-options">
+        <option *ngFor="let option of taskIdOptions" [value]="option"></option>
+      </datalist>
+    </label>
+
+    <label>
+      <span>Status</span>
+      <select formControlName="status">
+        <option *ngFor="let option of statusOptions" [value]="option.value">{{ option.label }}</option>
+      </select>
+    </label>
+  </form>
+
+  <div *ngIf="message" class="notice">{{ message }}</div>
+  <div *ngIf="error" class="notice notice--error">{{ error }}</div>
+</section>
+
+<section class="panel panel-table">
+  <div class="panel-table__header">
+    <div>
+      <p class="section-tag">Task Results</p>
+      <h3>{{ rows.length }} rows</h3>
+    </div>
+    <div class="panel-table__actions">
+      <span class="table-hint">RLHF prompt links are captured when available for the next GraphQL stage.</span>
+      <button
+        class="btn btn-secondary"
+        type="button"
+        (click)="validateAllTasks()"
+        [disabled]="!displayRows.length || loading || isTaskActionDisabled()"
+      >
+        {{
+          bulkValidateInProgress
+            ? bulkValidateTaskId
+              ? 'Validating ' + bulkValidateTaskId + '...'
+              : 'Validating All...'
+            : 'Validate All'
+        }}
+      </button>
+      <button
+        class="btn btn-primary"
+        type="button"
+        (click)="fetchAllTasks()"
+        [disabled]="!displayRows.length || loading || isTaskActionDisabled()"
+      >
+        {{
+          bulkFetchInProgress
+            ? bulkFetchTaskId
+              ? 'Fetching ' + bulkFetchTaskId + '...'
+              : 'Fetching All...'
+            : 'Fetch All'
+        }}
+      </button>
+    </div>
+  </div>
+
+  <div *ngIf="loading" class="loading-modal-backdrop" aria-live="polite">
+    <div class="loading-modal" role="status" aria-busy="true">
+      <span class="spinner" aria-hidden="true"></span>
+      <strong>Loading conversations</strong>
+      <span>Fetching the latest data from the backend.</span>
+    </div>
+  </div>
+
+  <div class="table-wrap" *ngIf="rows.length; else emptyState">
+    <table>
+      <thead>
+        <tr>
+          <th [attr.aria-sort]="getAriaSort('batch')">
+            <button class="sort-button" type="button" (click)="sortBy('batch')">
+              <span>Batch</span>
+              <span
+                class="sort-indicator"
+                [class.sort-indicator--active]="isSortActive('batch')"
+                [class.sort-indicator--desc]="isSortDescending('batch')"
+                aria-hidden="true"
+              ></span>
+            </button>
+          </th>
+          <th [attr.aria-sort]="getAriaSort('taskId')">
+            <button class="sort-button" type="button" (click)="sortBy('taskId')">
+              <span>Task ID</span>
+              <span
+                class="sort-indicator"
+                [class.sort-indicator--active]="isSortActive('taskId')"
+                [class.sort-indicator--desc]="isSortDescending('taskId')"
+                aria-hidden="true"
+              ></span>
+            </button>
+          </th>
+          <th [attr.aria-sort]="getAriaSort('schemaName')">
+            <button class="sort-button" type="button" (click)="sortBy('schemaName')">
+              <span>Schema Name</span>
+              <span
+                class="sort-indicator"
+                [class.sort-indicator--active]="isSortActive('schemaName')"
+                [class.sort-indicator--desc]="isSortDescending('schemaName')"
+                aria-hidden="true"
+              ></span>
+            </button>
+          </th>
+          <th [attr.aria-sort]="getAriaSort('turnCount')">
+            <button class="sort-button" type="button" (click)="sortBy('turnCount')">
+              <span>Num of Turns</span>
+              <span
+                class="sort-indicator"
+                [class.sort-indicator--active]="isSortActive('turnCount')"
+                [class.sort-indicator--desc]="isSortDescending('turnCount')"
+                aria-hidden="true"
+              ></span>
+            </button>
+          </th>
+          <th [attr.aria-sort]="getAriaSort('complexity')">
+            <button class="sort-button" type="button" (click)="sortBy('complexity')">
+              <span>Complexity</span>
+              <span
+                class="sort-indicator"
+                [class.sort-indicator--active]="isSortActive('complexity')"
+                [class.sort-indicator--desc]="isSortDescending('complexity')"
+                aria-hidden="true"
+              ></span>
+            </button>
+          </th>
+          <th>Metadata</th>
+          <th [attr.aria-sort]="getAriaSort('businessStatus')">
+            <button class="sort-button" type="button" (click)="sortBy('businessStatus')">
+              <span>Business Status</span>
+              <span
+                class="sort-indicator"
+                [class.sort-indicator--active]="isSortActive('businessStatus')"
+                [class.sort-indicator--desc]="isSortDescending('businessStatus')"
+                aria-hidden="true"
+              ></span>
+            </button>
+          </th>
+          <th [attr.aria-sort]="getAriaSort('assignedUser')">
+            <button class="sort-button" type="button" (click)="sortBy('assignedUser')">
+              <span>Assigned User</span>
+              <span
+                class="sort-indicator"
+                [class.sort-indicator--active]="isSortActive('assignedUser')"
+                [class.sort-indicator--desc]="isSortDescending('assignedUser')"
+                aria-hidden="true"
+              ></span>
+            </button>
+          </th>
+
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <ng-container *ngFor="let row of displayRows; trackBy: trackByTaskId">
+          <tr>
+            <td>{{ row.batch }}</td>
+            <td>
+              <div class="task-id-cell">
+                <a
+                  class="task-link"
+                  [href]="'https://labeling-o.turing.com/conversations/' + row.taskId + '/view'"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {{ row.taskId }}
+                </a>
+                <a
+                  *ngIf="getCollabHref(row) as collabHref"
+                  class="task-link-icon"
+                  [href]="collabHref"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  [attr.aria-label]="'Open RLHF prompt for task ' + row.taskId"
+                  title="Open RLHF prompt"
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                    <path
+                      d="M11 3h6v6h-2V6.41l-7.29 7.3-1.42-1.42L13.59 5H11V3Zm4 14H5V5h4V3H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4h-2v4Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                  <span class="sr-only">Open RLHF prompt for task {{ row.taskId }}</span>
+                </a>
+              </div>
+            </td>
+            <td>{{ row.schemaName }}</td>
+            <td>{{ row.turnCount }}</td>
+            <td>{{ row.complexity }}</td>
+            <td>
+              <button class="table-action" type="button" (click)="toggleMetadata(row.taskId)">
+                {{ isMetadataOpen(row.taskId) ? 'Hide Metadata' : 'View Metadata' }}
+              </button>
+            </td>
+            <td>{{ row.businessStatus }}</td>
+            <td>{{ row.assignedUser }}</td>
+            <td>
+              <div class="row-actions">
+                <button
+                  class="btn btn-primary btn-row"
+                  type="button"
+                  (click)="fetchTask(row)"
+                  [disabled]="isTaskActionDisabled()"
+                >
+                  {{ isFetchRunningForTask(row.taskId) ? 'Fetching...' : 'Fetch Data' }}
+                </button>
+                <button
+                  class="btn btn-secondary btn-row"
+                  type="button"
+                  (click)="validateTask(row)"
+                  [disabled]="isTaskActionDisabled()"
+                >
+                  {{ isValidateRunningForTask(row.taskId) ? 'Validating...' : 'Validate' }}
+                </button>
+                <button class="btn btn-secondary btn-row" type="button" (click)="openReport(row.taskId)" [disabled]="isTaskActionDisabled()">
+                  View Result
+                </button>
+              </div>
+            </td>
+          </tr>
+          <tr *ngIf="isMetadataOpen(row.taskId)" class="metadata-row">
+            <td colspan="9">
+              <div class="metadata-card">
+                <p class="metadata-card__title">Metadata for Task {{ row.taskId }}</p>
+                <pre>{{ row.metadataPreview }}</pre>
+              </div>
+            </td>
+          </tr>
+        </ng-container>
+      </tbody>
+    </table>
+  </div>
+
+  <ng-template #emptyState>
+    <div class="empty-state">
+      <h3>No task rows yet</h3>
+      <p>Adjust the filters to load live conversations through the local proxy.</p>
+    </div>
+  </ng-template>
+</section>
