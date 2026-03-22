@@ -1,10 +1,11 @@
-﻿import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { runTaskWorkflowAction } from './task-workflows.mjs';
+import { PLSQL_CONSTRUCT_CATALOG, PLSQL_REASONING_TYPE_CATALOG } from './generation/reference-data.mjs';
 
 function createNamingConnectionStub() {
   return {
@@ -268,8 +269,74 @@ test('runTaskWorkflowAction(generate-outputs) writes native analyzer artifacts',
     assert.equal(result.success, true);
     assert.deepEqual(result.command, ['native-generate-outputs']);
     assert.match(await readFile(join(taskDir, '9462_turn1_6reasoningTypes.txt'), 'utf8'), /Data Retrieval/);
+    const reasoningAudit = JSON.parse(await readFile(join(taskDir, '9462_turn1_6reasoningTypes.audit.json'), 'utf8'));
+    assert.equal(reasoningAudit.totalItemsConsidered, PLSQL_REASONING_TYPE_CATALOG.length);
+    assert.ok(Array.isArray(reasoningAudit.items));
+    assert.equal(reasoningAudit.items.length, PLSQL_REASONING_TYPE_CATALOG.length);
+    assert.ok(reasoningAudit.items.every((entry) => entry.considered === true));
+    assert.ok(reasoningAudit.items.some((entry) => entry.label === 'Data Retrieval' && entry.matched));
     assert.match(await readFile(join(taskDir, '9462_turn1_7plSqlConstructs.txt'), 'utf8'), /CREATE OR REPLACE PROCEDURE/);
+    const constructsAudit = JSON.parse(await readFile(join(taskDir, '9462_turn1_7plSqlConstructs.audit.json'), 'utf8'));
+    assert.equal(constructsAudit.totalItemsConsidered, PLSQL_CONSTRUCT_CATALOG.length);
+    assert.ok(Array.isArray(constructsAudit.items));
+    assert.equal(constructsAudit.items.length, PLSQL_CONSTRUCT_CATALOG.length);
+    assert.ok(constructsAudit.items.every((entry) => entry.considered === true));
+    assert.ok(constructsAudit.items.some((entry) => entry.label === 'CREATE OR REPLACE PROCEDURE' && entry.matched));
     assert.match(await readFile(join(taskDir, '9462_turn1_5testCases.sql'), 'utf8'), /execution_result:\n1/);
+    assert.match(await readFile(result.logFile, 'utf8'), /reasoning types considered/);
+    assert.match(await readFile(result.logFile, 'utf8'), /PL\/SQL constructs considered/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('runTaskWorkflowAction(generate-outputs) returns a failed result and preserves the log when the native runner throws', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-workflows-'));
+  const taskOutputDir = join(root, 'task-output');
+  const schemaCacheDir = join(root, 'schema');
+  const taskDir = join(taskOutputDir, '9462');
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await mkdir(join(schemaCacheDir, 'bigquery_public_data'), { recursive: true });
+    await writeWorkflowFixture(taskDir);
+    await writeFile(
+      join(schemaCacheDir, 'bigquery_public_data', 'sample.json'),
+      JSON.stringify({
+        database: 'SAMPLE',
+        tables: {},
+        _schema_definition: {
+          column_format: ['name'],
+        },
+      }),
+      'utf8',
+    );
+
+    const result = await runTaskWorkflowAction(
+      'generate-outputs',
+      '9462',
+      {
+        cookie: 'cookie=value',
+        taskOutputDir,
+        schemaCacheDir,
+        trainerProjectDir: 'D:\\Turing\\Projects\\workspace\\llm-trainer-project',
+      },
+      {
+        generateDependencies: {
+          schemaGenerator: async () => ({ schemaFile: 'bigquery_public_data/sample.json' }),
+          testcaseRunner: async () => {
+            throw new Error('simulated testcase refresh crash');
+          },
+        },
+      },
+    );
+
+    assert.equal(result.success, false);
+    assert.equal(result.exitCode, 1);
+    assert.deepEqual(result.command, ['native-generate-outputs']);
+    assert.match(result.logFile, /_logs[\\\/]generate-outputs-/);
+    assert.match(await readFile(result.logFile, 'utf8'), /Workflow action failed unexpectedly/);
+    assert.match(await readFile(result.logFile, 'utf8'), /simulated testcase refresh crash/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -318,6 +385,3 @@ test('runTaskWorkflowAction(publish) uses the native GraphQL publisher', async (
     await rm(root, { recursive: true, force: true });
   }
 });
-
-
-

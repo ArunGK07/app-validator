@@ -1,4 +1,4 @@
-import { PLSQL_CONSTRUCT_PATTERNS, REASONING_TYPE_PATTERNS } from './reference-data.mjs';
+import { PLSQL_CONSTRUCT_CATALOG, PLSQL_REASONING_TYPE_CATALOG } from './reference-data.mjs';
 
 export function formatCommaLines(items) {
   const values = items.map((item) => String(item).trim()).filter(Boolean);
@@ -58,19 +58,56 @@ export function analyzeColumns(codeText, schema) {
 }
 
 export function analyzeConstructs(codeText) {
-  const normalized = `${removeSqlComments(removeStringLiterals(codeText))}\n${extractDynamicSqlFragments(codeText).join('\n')}`;
-  return Object.entries(PLSQL_CONSTRUCT_PATTERNS)
-    .filter(([, pattern]) => pattern.test(normalized))
-    .map(([name]) => name)
+  return [...new Set(evaluatePlsqlConstructs(codeText).filter((entry) => entry.matched).map((entry) => entry.label))]
     .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
 }
 
+export function evaluatePlsqlConstructs(codeText) {
+  const normalized = buildConstructAnalysisText(codeText);
+  return PLSQL_CONSTRUCT_CATALOG.map((entry) => {
+    const match = entry.pattern.exec(normalized);
+    entry.pattern.lastIndex = 0;
+
+    return {
+      pdfIndex: entry.pdfIndex,
+      id: entry.id,
+      label: entry.label,
+      considered: true,
+      matched: Boolean(match),
+      line: match?.index === undefined ? null : findLineNumber(normalized, match.index),
+      matchedText: match?.[0] ? collapseWhitespace(match[0]).slice(0, 180) : null,
+    };
+  });
+}
+
 export function analyzeReasoningTypes(codeText) {
-  const normalized = `${removeSqlComments(removeStringLiterals(codeText))}\n${extractDynamicSqlFragments(codeText).join('\n')}`;
-  return Object.entries(REASONING_TYPE_PATTERNS)
-    .filter(([, patterns]) => patterns.every((pattern) => pattern.test(normalized)))
-    .map(([name]) => name)
+  return evaluateReasoningTypes(codeText)
+    .filter((entry) => entry.matched)
+    .map((entry) => entry.label)
     .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
+}
+
+export function evaluateReasoningTypes(codeText) {
+  const normalized = buildConstructAnalysisText(codeText);
+  return PLSQL_REASONING_TYPE_CATALOG.map((entry) => {
+    const matches = entry.patterns.map((pattern) => {
+      const match = pattern.exec(normalized);
+      pattern.lastIndex = 0;
+      return match;
+    });
+    const matched = entry.mode === 'any' ? matches.some(Boolean) : matches.every(Boolean);
+    const firstMatch = matches.find(Boolean) ?? null;
+
+    return {
+      pdfIndex: entry.pdfIndex,
+      id: entry.id,
+      label: entry.label,
+      considered: true,
+      matched,
+      line: firstMatch?.index === undefined ? null : findLineNumber(normalized, firstMatch.index),
+      matchedText: firstMatch?.[0] ? collapseWhitespace(firstMatch[0]).slice(0, 180) : null,
+    };
+  });
 }
 
 function loadSchemaColumns(schema) {
@@ -127,6 +164,10 @@ function extractDynamicSqlFragments(code) {
   return fragments;
 }
 
+function buildConstructAnalysisText(codeText) {
+  return `${removeSqlComments(removeStringLiterals(codeText))}\n${extractDynamicSqlFragments(codeText).join('\n')}`;
+}
+
 function removeSqlComments(code) {
   return String(code).replace(/--[^\n]*(?:\n|$)/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
 }
@@ -141,4 +182,12 @@ function normalizeIdentifier(value) {
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function findLineNumber(text, index) {
+  return String(text).slice(0, index).split(/\r?\n/).length;
+}
+
+function collapseWhitespace(value) {
+  return String(value).replace(/\s+/g, ' ').trim();
 }

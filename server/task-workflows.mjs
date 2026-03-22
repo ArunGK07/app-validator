@@ -1,4 +1,4 @@
-﻿import { mkdir, readdir, unlink } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve as pathResolve, relative as pathRelative } from 'node:path';
 
 import { createLogger } from './logger.mjs';
@@ -13,15 +13,18 @@ const logger = createLogger('task-workflows');
 
 const ACTION_DEFINITIONS = {
   validate: {
+    command: ['native-validation'],
     logPrefix: 'validate',
     beforeRun: clearTaskLogFiles,
     runNative: runNativeValidateAction,
   },
   'generate-outputs': {
+    command: ['native-generate-outputs'],
     logPrefix: 'generate-outputs',
     runNative: runNativeGenerateOutputsAction,
   },
   publish: {
+    command: ['native-publish'],
     logPrefix: 'publish',
     runNative: runNativePublishAction,
   },
@@ -74,7 +77,21 @@ export async function runTaskWorkflowAction(action, taskId, config, options = {}
     logFilePath,
   });
 
-  return definition.runNative(context, config, options);
+  await writeWorkflowStartLog(context, definition.command, startedAt);
+
+  try {
+    return await definition.runNative(context, config, options);
+  } catch (error) {
+    logger.error('Native task workflow action failed', {
+      action,
+      taskId: normalizedTaskId,
+      logFilePath,
+      message: error instanceof Error ? error.message : String(error),
+    });
+
+    await appendWorkflowFailureLog(logFilePath, error);
+    return buildWorkflowFailureResult(action, normalizedTaskId, taskDir, logFilePath, definition.command, startedAt, error);
+  }
 }
 
 export function buildTaskWorkflowActionPaths(taskId) {
@@ -124,6 +141,58 @@ async function ensureTaskLogsFolder(taskDir) {
   const logsDir = join(taskDir, LOGS_DIR_NAME);
   await mkdir(logsDir, { recursive: true });
   return logsDir;
+}
+
+async function writeWorkflowStartLog(context, command, startedAt) {
+  await writeFile(
+    context.logFilePath,
+    [
+      `Workflow action started: ${context.action}`,
+      `Task: ${context.taskId}`,
+      `Started At: ${startedAt.toISOString()}`,
+      `Command: ${command.join(' ')}`,
+      `Working Directory: ${context.taskDir}`,
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+}
+
+async function appendWorkflowFailureLog(logFilePath, error) {
+  const details = error instanceof Error ? error.stack || error.message : String(error);
+
+  await appendFile(
+    logFilePath,
+    [
+      'Workflow action failed unexpectedly.',
+      `Finished At: ${new Date().toISOString()}`,
+      details,
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+}
+
+function buildWorkflowFailureResult(action, taskId, taskDir, logFilePath, command, startedAt, error) {
+  const finishedAt = new Date();
+  const message = error instanceof Error ? error.message : String(error);
+
+  return {
+    action,
+    taskId,
+    success: false,
+    exitCode: 1,
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationMs: finishedAt.getTime() - startedAt.getTime(),
+    scriptPath: '',
+    workingDirectory: taskDir,
+    command,
+    logFile: logFilePath,
+    stdoutTail: '',
+    stderrTail: message,
+    artifacts: [],
+  };
 }
 
 function resolveTaskOutputFolder(taskId, config) {

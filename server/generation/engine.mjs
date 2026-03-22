@@ -5,7 +5,7 @@ import { getSharedSchemaPath } from '../schema-cache.mjs';
 import { generateTaskSchemaArtifact } from '../schema-extractor.mjs';
 import { loadTaskMetadata, loadTurnTextArtifact } from '../validation/common.mjs';
 import { formatTaskArtifactName } from '../workspace-config.mjs';
-import { analyzeColumns, analyzeConstructs, analyzeReasoningTypes, analyzeTables, formatCommaLines } from './analyzers.mjs';
+import { analyzeColumns, analyzeConstructs, analyzeReasoningTypes, analyzeTables, evaluatePlsqlConstructs, evaluateReasoningTypes, formatCommaLines } from './analyzers.mjs';
 import { refreshTaskTestCases } from './testcase-runner.mjs';
 
 export async function runNativeGenerateOutputs(taskId, taskDir, logFilePath, config, dependencies = {}) {
@@ -56,17 +56,63 @@ export async function runNativeGenerateOutputs(taskId, taskDir, logFilePath, con
       artifacts.push(columnsPath);
     }
 
+    const constructEvaluations = evaluatePlsqlConstructs(codeArtifact.text);
     const constructs = analyzeConstructs(codeArtifact.text);
     const constructsPath = join(taskDir, formatTaskArtifactName('turn_plsql_constructs_file', { taskId, turnNumber }));
-    await writeFile(constructsPath, `${constructs.length ? formatCommaLines(constructs) : '[NO PL/SQL CONSTRUCTORS DETECTED]'}\n`, 'utf8');
+    await writeFile(constructsPath, `${constructs.length ? formatCommaLines(constructs) : '[NO PL/SQL CONSTRUCTS DETECTED]'}\n`, 'utf8');
     artifacts.push(constructsPath);
+    const constructsAuditPath = join(taskDir, formatTaskArtifactName('turn_plsql_constructs_audit_file', { taskId, turnNumber }));
+    await writeFile(
+      constructsAuditPath,
+      JSON.stringify(
+        {
+          taskId: String(taskId),
+          turnNumber,
+          sourceFile: codeArtifact.fileName,
+          catalogSource: 'PLSQL_CONSTRUCTS_LIST.pdf',
+          totalItemsConsidered: constructEvaluations.length,
+          matchedItemsCount: constructEvaluations.filter((entry) => entry.matched).length,
+          items: constructEvaluations,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    artifacts.push(constructsAuditPath);
 
+    const reasoningEvaluations = evaluateReasoningTypes(codeArtifact.text);
     const reasoningTypes = analyzeReasoningTypes(codeArtifact.text);
     const reasoningPath = join(taskDir, formatTaskArtifactName('turn_reasoning_types_file', { taskId, turnNumber }));
     await writeFile(reasoningPath, `${reasoningTypes.length ? formatCommaLines(reasoningTypes) : '[NO REASONING TYPES DETECTED]'}\n`, 'utf8');
     artifacts.push(reasoningPath);
+    const reasoningAuditPath = join(taskDir, formatTaskArtifactName('turn_reasoning_types_audit_file', { taskId, turnNumber }));
+    await writeFile(
+      reasoningAuditPath,
+      JSON.stringify(
+        {
+          taskId: String(taskId),
+          turnNumber,
+          sourceFile: codeArtifact.fileName,
+          catalogSource: 'PLSQL_REASONING_TYPES_LIST.pdf',
+          totalItemsConsidered: reasoningEvaluations.length,
+          matchedItemsCount: reasoningEvaluations.filter((entry) => entry.matched).length,
+          items: reasoningEvaluations,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    artifacts.push(reasoningAuditPath);
 
     logLines.push(`Turn ${turnNumber}: analyzer artifacts written`);
+    logLines.push(
+      `Turn ${turnNumber}: PL/SQL constructs considered ${constructEvaluations.length}, matched ${constructEvaluations.filter((entry) => entry.matched).length}`,
+    );
+    logLines.push(
+      `Turn ${turnNumber}: reasoning types considered ${reasoningEvaluations.length}, matched ${reasoningEvaluations.filter((entry) => entry.matched).length}`,
+    );
   }
 
   const testcaseRunner = dependencies.testcaseRunner ?? refreshTaskTestCases;

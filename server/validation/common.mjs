@@ -1,8 +1,8 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+﻿import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { formatTaskArtifactName } from '../workspace-config.mjs';
-import { buildValidationChecklist, VALIDATION_CHECKLIST_CATALOG } from './checklist.mjs';
+import { buildValidationChecklist, enrichValidationResult, VALIDATION_CHECKLIST_CATALOG } from './checklist.mjs';
 
 export const VALIDATOR_NAMES = {
   promptStructure: 'PromptStructureValidator',
@@ -133,11 +133,12 @@ export async function ensureValidationDir(taskDir) {
 }
 
 export async function writeValidationReport(reportPath, validatorName, results, extra = null) {
+  const enrichedResults = results.map((result) => enrichValidationResult(result));
   const payload = {
     validator: validatorName,
     generatedAt: new Date().toISOString(),
-    summary: summarizeResults(results),
-    results,
+    summary: summarizeResults(enrichedResults),
+    results: enrichedResults,
   };
 
   if (extra && typeof extra === 'object') {
@@ -150,11 +151,15 @@ export async function writeValidationReport(reportPath, validatorName, results, 
 }
 
 export async function writeMasterValidationReport(reportPath, taskId, validatorReports) {
-  const allResults = validatorReports.flatMap((entry) => entry.results);
+  const enrichedValidatorReports = validatorReports.map((entry) => ({
+    ...entry,
+    results: entry.results.map((result) => enrichValidationResult(result)),
+  }));
+  const allResults = enrichedValidatorReports.flatMap((entry) => entry.results);
   const itemsSummary = summarizeResults(allResults);
-  const validatorsPassed = validatorReports.filter((entry) => entry.summary.failed === 0).length;
-  const validatorsFailed = validatorReports.length - validatorsPassed;
-  const checklist = buildValidationChecklist(validatorReports);
+  const validatorsPassed = enrichedValidatorReports.filter((entry) => entry.summary.failed === 0).length;
+  const validatorsFailed = enrichedValidatorReports.length - validatorsPassed;
+  const checklist = buildValidationChecklist(enrichedValidatorReports);
 
   const payload = {
     validator: VALIDATOR_NAMES.master,
@@ -172,7 +177,7 @@ export async function writeMasterValidationReport(reportPath, taskId, validatorR
       tasksPassed: itemsSummary.tasksPassed,
       tasksFailed: itemsSummary.tasksFailed,
     },
-    validators: validatorReports.map((entry) => ({
+    validators: enrichedValidatorReports.map((entry) => ({
       validator: entry.validator,
       summary: entry.summary,
       success: entry.summary.failed === 0,
@@ -349,3 +354,4 @@ export function formatLogText(masterReport, validatorReports) {
 
   return lines.join('\n');
 }
+

@@ -86,6 +86,178 @@ test('fetchTaskOutputArtifacts writes existing_output and extracted turn files',
   }
 });
 
+test('fetchTaskOutputArtifacts normalizes legacy user prompt formatting into the canonical validator shape', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-fetch-output-'));
+  const originalFetch = global.fetch;
+
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        data: {
+          prompt: {
+            id: 'prompt-24683',
+            type: 'PROMPT',
+            formData: {
+              feedback: null,
+            },
+            promptTurns: [
+              {
+                promptIndex: 0,
+                promptEvaluationFeedback: {
+                  promptTurnEvaluation: [
+                    {
+                      name: 'User',
+                      value: [
+                        'Create a PL/SQL procedure that retrieves and prints the region name for a given region identifier.',
+                        '',
+                        'Requirements:',
+                        '  Procedure Name: sp_get_region_info',
+                        '  Parameters:',
+                        '    p_region_id IN NUMBER -- region identifier used to fetch the region name',
+                        '  Output:',
+                        '    On success, print exactly one line:',
+                        '    Region: <region_name>',
+                        '  Exception Handling:',
+                        '    WHEN OTHERS: Unexpected error occurred.',
+                      ].join('\n'),
+                    },
+                    {
+                      name: 'Reference Answer',
+                      value: [
+                        'CREATE OR REPLACE PROCEDURE sp_get_region_info(p_region_id IN NUMBER) IS',
+                        'BEGIN',
+                        '  NULL;',
+                        'EXCEPTION',
+                        '  WHEN OTHERS THEN',
+                        "    DBMS_OUTPUT.PUT_LINE('Unexpected error occurred');",
+                        'END sp_get_region_info;',
+                        '/',
+                      ].join('\n'),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+  try {
+    await fetchTaskOutputArtifacts(
+      {
+        taskId: '24683',
+        collabLink: 'https://rlhf-v3.turing.com/prompt/prompt-24683',
+      },
+      {
+        cookie: 'cookie=value',
+        taskOutputDir: root,
+        rlhfGraphqlUrl: 'https://rlhf-api.turing.com/graphql',
+      },
+    );
+
+    assert.equal(
+      await readFile(join(root, '24683', '24683_turn1_1user.txt'), 'utf8'),
+      [
+        'Create a PL/SQL procedure that retrieves and prints the region name for a given region identifier.',
+        '',
+        'Requirements:',
+        '  Procedure Name:',
+        '  sp_get_region_info',
+        'Parameters:',
+        '  p_region_id - IN - NUMBER -- region identifier used to fetch the region name',
+        'Output:',
+        '    On success, print exactly one line:',
+        '    Region: <region_name>',
+        'Exception Handling:',
+        '  Other Exception : Unexpected error occurred',
+        '',
+      ].join('\n'),
+    );
+  } finally {
+    global.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('fetchTaskOutputArtifacts normalizes public-procedure labels and numbered parameter lines', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-fetch-output-'));
+  const originalFetch = global.fetch;
+
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        data: {
+          prompt: {
+            id: 'prompt-24638',
+            type: 'PROMPT',
+            formData: {
+              feedback: null,
+            },
+            promptTurns: [
+              {
+                promptIndex: 0,
+                promptEvaluationFeedback: {
+                  promptTurnEvaluation: [
+                    {
+                      name: 'User',
+                      value: [
+                        'Create an audit package prompt.',
+                        '',
+                        'Requirements:',
+                        '  Package Name: pkg_agency_master_audit',
+                        '  Public Procedure Name: sp_agency_master_audit',
+                        'Parameters:',
+                        '    1. p_style_id NUMBER -- entertainer style identifier used to filter engagements for auditing',
+                        '    2. p_threshold NUMBER -- contract price threshold used to flag under-priced engagements',
+                      ].join('\n'),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+  try {
+    await fetchTaskOutputArtifacts(
+      {
+        taskId: '24638',
+        collabLink: 'https://rlhf-v3.turing.com/prompt/prompt-24638',
+      },
+      {
+        cookie: 'cookie=value',
+        taskOutputDir: root,
+        rlhfGraphqlUrl: 'https://rlhf-api.turing.com/graphql',
+      },
+    );
+
+    assert.equal(
+      await readFile(join(root, '24638', '24638_turn1_1user.txt'), 'utf8'),
+      [
+        'Create an audit package prompt.',
+        '',
+        'Requirements:',
+        '  Package Name:',
+        '  pkg_agency_master_audit',
+        '  Procedure Name:',
+        '  sp_agency_master_audit',
+        'Parameters:',
+        '  p_style_id - IN - NUMBER -- entertainer style identifier used to filter engagements for auditing',
+        '  p_threshold - IN - NUMBER -- contract price threshold used to flag under-priced engagements',
+        '',
+      ].join('\n'),
+    );
+  } finally {
+    global.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('fetchTaskOutputArtifacts falls back to reviews API when prompt metadata is missing', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-fetch-output-'));
   const originalFetch = global.fetch;

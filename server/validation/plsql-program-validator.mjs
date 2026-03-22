@@ -1,4 +1,4 @@
-import {
+﻿import {
   VALIDATOR_NAMES,
   createFail,
   createPass,
@@ -214,6 +214,50 @@ function validateTurnCode(taskId, turnNumber, codeText, sourceName) {
   return results;
 }
 
+const AUXILIARY_ARTIFACTS = [
+  {
+    templateKey: 'turn_columns_file',
+    item: 'Columns Artifact',
+    missingUpdate: 'run the columns extraction step before running validation',
+  },
+  {
+    templateKey: 'turn_test_cases_file',
+    item: 'Test Cases Artifact',
+    missingUpdate: 'run the test-case generation step before running validation',
+  },
+  {
+    templateKey: 'turn_reasoning_types_file',
+    item: 'Reasoning Types Artifact',
+    missingUpdate: 'run the reasoning-types generation step before running validation',
+  },
+  {
+    templateKey: 'turn_plsql_constructs_file',
+    item: 'PL/SQL Constructs Artifact',
+    missingUpdate: 'run the PL/SQL constructs generation step before running validation',
+  },
+];
+
+async function validateAuxiliaryArtifacts(taskId, taskDir, turnNumber) {
+  const validatorName = VALIDATOR_NAMES.plsqlProgram;
+  const results = [];
+
+  for (const artifactSpec of AUXILIARY_ARTIFACTS) {
+    const artifact = await loadTurnTextArtifact(taskDir, artifactSpec.templateKey, taskId, turnNumber);
+    if (!artifact.text) {
+      results.push(createFail(validatorName, taskId, turnNumber, artifactSpec.item, 'missing_artifact', {
+        expected: `${artifactSpec.item.toLowerCase()} for turn ${turnNumber} must exist`,
+        present: `\`${artifact.fileName}\` not found in ${taskDir}`,
+        update: artifactSpec.missingUpdate,
+        sourceFile: artifact.fileName,
+      }));
+      continue;
+    }
+
+    results.push(createPass(validatorName, taskId, turnNumber, artifactSpec.item, 'artifact_present', artifact.fileName));
+  }
+
+  return results;
+}
 function validateRequiredConstructs(taskId, turnPayloads, metadata) {
   const validatorName = VALIDATOR_NAMES.plsqlProgram;
   const results = [];
@@ -444,6 +488,8 @@ export async function runPlsqlProgramValidator(taskId, taskDir, metadata) {
   const turnPrompts = [];
 
   for (let turnNumber = 1; turnNumber <= numTurns; turnNumber += 1) {
+    results.push(...await validateAuxiliaryArtifacts(taskId, taskDir, turnNumber));
+
     const codeArtifact = await loadTurnTextArtifact(taskDir, 'turn_reference_answer_file', taskId, turnNumber);
     if (!codeArtifact.text) {
       results.push(createFail(validatorName, taskId, turnNumber, 'Reference Answer Artifact', 'missing_artifact', {
@@ -473,3 +519,6 @@ export async function runPlsqlProgramValidator(taskId, taskDir, metadata) {
 
   return results;
 }
+
+
+

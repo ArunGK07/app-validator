@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+﻿import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -224,6 +224,78 @@ test('refreshTaskTestCases ignores SQL*Plus directives in execution instructions
   }
 });
 
+test('refreshTaskTestCases handles SQL*Plus block separators after leading comments', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-testcase-runner-comment-block-'));
+  const taskDir = join(root, '30004');
+  const metadata = {
+    id: 30004,
+    num_turns: 1,
+    dataset: 'world_bank_wdi',
+    database: 'bigquery-public-data',
+  };
+
+  const executedSql = [];
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '30004_turn1_4referenceAnswer.sql'),
+      [
+        '-- leading comment before object type',
+        'CREATE OR REPLACE TYPE rec_comment_type AS OBJECT (',
+        '  id NUMBER',
+        ');',
+        '/',
+        '',
+        'CREATE OR REPLACE TYPE BODY rec_comment_type AS',
+        'END rec_comment_type;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '30004_turn1_5testCases.sql'),
+      [
+        'Test Case 1:',
+        'execution_instructions:',
+        'SELECT 1 FROM dual;',
+        'execution_result:',
+        'old',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const result = await refreshTaskTestCases('30004', taskDir, metadata, {}, {
+      connectionFactory: async () => ({
+        async execute(sql) {
+          const trimmed = sql.trim();
+          executedSql.push(trimmed);
+          if (/DBMS_OUTPUT\.ENABLE/i.test(trimmed)) {
+            return { rows: [] };
+          }
+          if (/DBMS_OUTPUT\.GET_LINE/i.test(trimmed)) {
+            return { outBinds: { line: null, status: 1 } };
+          }
+          if (/^SELECT\s+1\s+FROM\s+dual$/i.test(trimmed)) {
+            return { rows: [[1]] };
+          }
+          return { rows: [] };
+        },
+        async commit() {},
+        async close() {},
+      }),
+    });
+
+    assert.equal(result.updatedFiles.length, 1);
+    assert.ok(executedSql.some((sql) => /^-- leading comment before object type[\s\S]*CREATE OR REPLACE TYPE rec_comment_type AS OBJECT/i.test(sql)));
+    assert.ok(executedSql.some((sql) => /^CREATE OR REPLACE TYPE BODY rec_comment_type AS[\s\S]*END rec_comment_type;$/i.test(sql)));
+    assert.ok(executedSql.every((sql) => !/^\//.test(sql)));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('refreshTaskTestCases keeps a blank-line-prefixed PL/SQL block intact', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-testcase-runner-leading-blank-'));
   const taskDir = join(root, '30002');
@@ -355,4 +427,5 @@ test('refreshTaskTestCases converts EXEC directives into runnable PL/SQL blocks'
     await rm(root, { recursive: true, force: true });
   }
 });
+
 

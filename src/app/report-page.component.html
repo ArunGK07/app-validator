@@ -3,11 +3,10 @@
     <div class="report-header__main">
       <div>
         <p class="eyebrow">Validation report</p>
-        <h2 *ngIf="taskId; else genericHeading">Task {{ taskId }} output</h2>
+        <h2 *ngIf="taskId; else genericHeading">Task {{ taskId }} : Report </h2>
         <ng-template #genericHeading>
           <h2>Task output</h2>
         </ng-template>
-        <p *ngIf="report?.folderPath" class="report-path">{{ report?.folderPath }}</p>
       </div>
 
       <div class="header-actions">
@@ -69,7 +68,7 @@
           (click)="selectFile(file.name)"
           [title]="file.name"
         >
-            <span class="file-item__name">{{ getShortFileLabel(file.name) }}</span>
+            <span class="file-item__name">{{ getDisplayFileButtonLabel(file.name) }}</span>
           </button>
         </div>
 
@@ -393,5 +392,4 @@
     </div>
   </div>
 </section>
-
 

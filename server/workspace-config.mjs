@@ -15,7 +15,9 @@ const TASK_ARTIFACT_TEMPLATES = {
   turn_reference_answer_file: '{taskId}_turn{turnNumber}_4referenceAnswer.sql',
   turn_test_cases_file: '{taskId}_turn{turnNumber}_5testCases.sql',
   turn_reasoning_types_file: '{taskId}_turn{turnNumber}_6reasoningTypes.txt',
+  turn_reasoning_types_audit_file: '{taskId}_turn{turnNumber}_6reasoningTypes.audit.json',
   turn_plsql_constructs_file: '{taskId}_turn{turnNumber}_7plSqlConstructs.txt',
+  turn_plsql_constructs_audit_file: '{taskId}_turn{turnNumber}_7plSqlConstructs.audit.json',
 };
 
 export function getTaskOutputDir(env = process.env) {
@@ -39,4 +41,5 @@ export function formatTaskArtifactName(templateKey, values = {}) {
     .replace(/\{taskId\}/g, values.taskId ?? '')
     .replace(/\{turnNumber\}/g, values.turnNumber ?? '');
 }
+
 

@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+﻿import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import oracledb from 'oracledb';
@@ -167,6 +167,10 @@ function splitSqlStatements(source) {
   let buffer = [];
   let inBlock = false;
   const isSqlPlusDirective = (line) => /^(set|prompt|spool|show\s+errors|exit)\b/i.test(line);
+  const isIgnorableLeadingLine = (line) => {
+    const trimmed = line.trim();
+    return !trimmed || /^--/.test(trimmed) || /^\/\*/.test(trimmed) || /^\*/.test(trimmed) || /\*\/$/.test(trimmed);
+  };
   const blockStartRe = /^(CREATE(\s+OR\s+REPLACE)?\s+(PROCEDURE|FUNCTION|PACKAGE|TRIGGER|TYPE)|DECLARE|BEGIN)\b/i;
   const execRe = /^(?:exec|execute)\s+([\s\S]+?)\s*;?\s*$/i;
   const flush = () => {
@@ -194,10 +198,10 @@ function splitSqlStatements(source) {
       }
       continue;
     }
-    if ((!buffer.length || buffer.every((entry) => !entry.trim())) && blockStartRe.test(trimmed)) {
+    if ((!buffer.length || buffer.every((entry) => isIgnorableLeadingLine(entry))) && blockStartRe.test(trimmed)) {
       inBlock = true;
     }
-    if (trimmed === '/' && inBlock) {
+    if (trimmed === '/') {
       flush();
       continue;
     }
@@ -226,6 +230,7 @@ async function replaceAsync(input, regex, replacer) {
   result += input.slice(cursor);
   return result;
 }
+
 
 
 

@@ -268,7 +268,7 @@ async function extractPromptTurnEvaluations(taskId, responsePayload, config) {
   for (const entry of extracted.values()) {
     const fileName = resolveExtractedOutputName(taskId, entry.turnNumber, entry.name);
     const filePath = pathResolve(taskDir, fileName);
-    const content = `${entry.values.join('\n\n').replace(/\s+$/u, '')}\n`;
+    const content = normalizeExtractedContent(fileName, `${entry.values.join('\n\n').replace(/\s+$/u, '')}\n`);
 
     await writeFile(filePath, content, 'utf8');
     writtenFiles.push(fileName);
@@ -278,6 +278,134 @@ async function extractPromptTurnEvaluations(taskId, responsePayload, config) {
   return writtenFiles.sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
 }
 
+function normalizeExtractedContent(fileName, content) {
+  if (!/_1user\.txt$/i.test(String(fileName))) {
+    return content;
+  }
+
+  return normalizeLegacyUserPrompt(content);
+}
+
+function normalizeLegacyUserPrompt(content) {
+  const lines = String(content).replace(/\r/g, '').split('\n');
+  const normalized = [];
+  let section = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (/^Requirements\s*:/i.test(trimmed)) {
+      section = 'requirements';
+      normalized.push('Requirements:');
+      continue;
+    }
+
+    if (/^Parameters\s*:/i.test(trimmed)) {
+      section = 'parameters';
+      normalized.push('Parameters:');
+      continue;
+    }
+
+    if (/^Output\s*:/i.test(trimmed)) {
+      section = 'output';
+      normalized.push('Output:');
+      continue;
+    }
+
+    if (/^Sorting\s+Order\s*:/i.test(trimmed)) {
+      section = 'sorting_order';
+      normalized.push('Sorting Order:');
+      continue;
+    }
+
+    if (/^Exception\s+Handling\s*:/i.test(trimmed)) {
+      section = 'exception_handling';
+      normalized.push('Exception Handling:');
+      continue;
+    }
+
+    if (!trimmed) {
+      normalized.push('');
+      continue;
+    }
+
+    if (section === 'requirements') {
+      const inlineRequirementMatch = trimmed.match(/^(Public Procedure Name|Procedure Name|Function Name|Package Name|Trigger Name|Object Name)\s*:\s*(.+)$/i);
+      if (inlineRequirementMatch) {
+        normalized.push(`  ${normalizeRequirementLabel(inlineRequirementMatch[1])}:`);
+        normalized.push(`  ${inlineRequirementMatch[2].trim()}`);
+        continue;
+      }
+    }
+
+    if (section === 'parameters') {
+      const parameterLine = normalizeLegacyParameterLine(trimmed);
+      if (parameterLine) {
+        normalized.push(`  ${parameterLine}`);
+        continue;
+      }
+    }
+
+    if (section === 'exception_handling') {
+      const exceptionLine = normalizeLegacyExceptionLine(trimmed);
+      if (exceptionLine) {
+        normalized.push(`  ${exceptionLine}`);
+        continue;
+      }
+    }
+
+    normalized.push(line.replace(/\s+$/u, ''));
+  }
+
+  return `${normalized.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/u, '')}\n`;
+}
+
+function normalizeRequirementLabel(label) {
+  const normalized = String(label).trim().toLowerCase();
+  if (normalized === 'public procedure name') {
+    return 'Procedure Name';
+  }
+
+  return normalized
+    .split(/\s+/)
+    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
+    .join(' ');
+}
+
+function normalizeLegacyParameterLine(line) {
+  if (/^[A-Za-z][A-Za-z0-9_$#]*\s*:\s*$/i.test(line)) {
+    return line;
+  }
+
+  if (/^(Public Procedure Name|Procedure Name|Function Name|Package Name|Trigger Name|Object Name)\s*:/i.test(line)) {
+    return null;
+  }
+
+  const match = line.match(/^(?:\d+\.\s*)?([A-Za-z][A-Za-z0-9_$#]*)\s+(?:(IN\s+OUT|INOUT|IN|OUT|LOCAL)\s+)?(.+?)(?:\s*--\s*(.+))?$/i);
+  if (!match) {
+    return null;
+  }
+
+  const name = match[1].trim();
+  const mode = (match[2] ?? 'IN').replace(/\s+/g, ' ').toUpperCase();
+  const datatype = match[3].trim();
+  const comment = match[4]?.trim() || 'parameter value';
+
+  return `${name} - ${mode} - ${datatype} -- ${comment}`;
+}
+function normalizeLegacyExceptionLine(line) {
+  const whenOthersMatch = line.match(/^WHEN\s+OTHERS\s*:\s*(.+)$/i);
+  if (whenOthersMatch) {
+    return `Other Exception : ${whenOthersMatch[1].trim().replace(/[.]+$/u, '')}`;
+  }
+
+  const genericMatch = line.match(/^([^:]+)\s*:\s*(.+)$/);
+  if (!genericMatch) {
+    return null;
+  }
+
+  return `${genericMatch[1].trim()} : ${genericMatch[2].trim().replace(/\s+/g, ' ')}`;
+}
 async function clearExistingExtractedFiles(taskDir, taskId) {
   const entries = await readdir(taskDir, { withFileTypes: true });
   const taskPattern = new RegExp(`^${escapeForRegex(taskId)}_turn\\d+_.+\\.(?:txt|sql)$`, 'i');

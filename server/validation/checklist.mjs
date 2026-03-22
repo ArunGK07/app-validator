@@ -1,4 +1,4 @@
-const VALIDATOR_NAMES = {
+﻿const VALIDATOR_NAMES = {
   promptStructure: 'PromptStructureValidator',
   plsqlProgram: 'PLSQLProgramValidator',
   complexityTableCount: 'ComplexityTableCountValidator',
@@ -28,7 +28,7 @@ export const VALIDATION_CHECKLIST_CATALOG = [
     validator: VALIDATOR_NAMES.promptStructure,
     item: 'Prompt Preamble',
     ruleIds: ['preamble_allowed', 'unexpected_preamble'],
-    description: 'The prompt may contain at most two preamble lines before Requirements.',
+    description: 'The prompt may contain at most three preamble lines before Requirements.',
   },
   {
     checkId: 'prompt.structure',
@@ -191,6 +191,38 @@ export const VALIDATION_CHECKLIST_CATALOG = [
     item: 'Reference Answer Artifact',
     ruleIds: ['artifact_present', 'missing_artifact'],
     description: 'Each turn must have a PL/SQL reference answer artifact.',
+  },
+  {
+    checkId: 'plsql.columns-artifact',
+    category: 'plsql-program',
+    validator: VALIDATOR_NAMES.plsqlProgram,
+    item: 'Columns Artifact',
+    ruleIds: ['artifact_present', 'missing_artifact'],
+    description: 'Each turn must have a columns artifact.',
+  },
+  {
+    checkId: 'plsql.test-cases-artifact',
+    category: 'plsql-program',
+    validator: VALIDATOR_NAMES.plsqlProgram,
+    item: 'Test Cases Artifact',
+    ruleIds: ['artifact_present', 'missing_artifact'],
+    description: 'Each turn must have a test-cases artifact.',
+  },
+  {
+    checkId: 'plsql.reasoning-types-artifact',
+    category: 'plsql-program',
+    validator: VALIDATOR_NAMES.plsqlProgram,
+    item: 'Reasoning Types Artifact',
+    ruleIds: ['artifact_present', 'missing_artifact'],
+    description: 'Each turn must have a reasoning-types artifact.',
+  },
+  {
+    checkId: 'plsql.plsql-constructs-artifact',
+    category: 'plsql-program',
+    validator: VALIDATOR_NAMES.plsqlProgram,
+    item: 'PL/SQL Constructs Artifact',
+    ruleIds: ['artifact_present', 'missing_artifact'],
+    description: 'Each turn must have a PL/SQL constructs artifact.',
   },
   {
     checkId: 'plsql.exception-handling',
@@ -446,6 +478,46 @@ function getResultKey(result) {
   return `${result.validator}::${result.item}::${result.ruleId}::${result.turnId ?? 'task'}`;
 }
 
+export function resolveChecklistDefinition(result) {
+  return VALIDATION_CHECKLIST_CATALOG.find((definition) => {
+    const itemMatches = definition.item
+      ? result.item === definition.item
+      : definition.itemPrefix
+        ? result.item.startsWith(definition.itemPrefix)
+        : true;
+    return result.validator === definition.validator && definition.ruleIds.includes(result.ruleId) && itemMatches;
+  }) ?? null;
+}
+
+export function enrichValidationResult(result) {
+  const definition = resolveChecklistDefinition(result);
+  const checkId = definition
+    ? (definition.dynamic ? `${definition.checkId}.${slugify(result.item)}` : definition.checkId)
+    : `${result.validator}.${result.ruleId}.${slugify(result.item)}`;
+  const category = definition?.category ?? inferCategory(result.validator);
+  const description = definition?.description ?? null;
+
+  let expected = result.expected;
+  let present = result.present;
+  let update = result.update;
+
+  if (result.status === 'PASS') {
+    expected ??= description;
+    present ??= result.sourceFile ? `check passed for ${result.sourceFile}` : 'check passed';
+    update ??= 'No action required.';
+  }
+
+  return {
+    ...result,
+    checkId,
+    category,
+    description,
+    expected,
+    present,
+    update,
+  };
+}
+
 function slugify(value) {
   return String(value ?? '')
     .trim()
@@ -460,3 +532,5 @@ function inferCategory(validator) {
   if (validator === VALIDATOR_NAMES.namingStandard) return 'naming-standard';
   return 'other';
 }
+
+

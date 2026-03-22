@@ -274,10 +274,11 @@ export class ReportPageComponent implements OnInit {
             ? `${this.getActionLabel(action)} completed for task ${this.taskId}.`
             : `${this.getActionLabel(action)} finished with exit code ${result.exitCode}.`;
 
-          this.loadReport(this.taskId);
+          this.loadReport(this.taskId, { preferredFileName: result.logFile });
         },
         error: (error: unknown) => {
           this.actionError = this.asErrorMessage(error);
+          this.loadReport(this.taskId);
         },
       });
   }
@@ -334,6 +335,29 @@ export class ReportPageComponent implements OnInit {
 
   private getSelectionKey(name: string): string {
     return this.getShortFileLabel(name).trim().toLowerCase();
+  }
+
+  getDisplayFileButtonLabel(name: string): string {
+    const shortLabel = this.getShortFileLabel(name);
+
+    switch (shortLabel.toLowerCase()) {
+      case '1user.txt':
+        return 'Prompt';
+      case '2tables.txt':
+        return 'Table';
+      case '3columns.txt':
+        return 'Columns';
+      case '4referenceanswer.sql':
+        return 'PL/SQL Program';
+      case '5testcases.sql':
+        return 'Test Cases';
+      case '6reasoningtypes.txt':
+        return 'Reasoning Types';
+      case '7plsqlconstructs.txt':
+        return 'PL/SQL Constructors';
+      default:
+        return shortLabel;
+    }
   }
 
   getShortFileLabel(name: string): string {
@@ -947,7 +971,7 @@ export class ReportPageComponent implements OnInit {
       .join('\n');
   }
 
-  private loadReport(taskId: string): void {
+  private loadReport(taskId: string, options: { preferredFileName?: string | null } = {}): void {
     this.loadingReport = true;
 
     this.api
@@ -959,15 +983,20 @@ export class ReportPageComponent implements OnInit {
           this.report = report;
           this.fileGroups = this.buildFileGroups(report);
           this.validationStatusCache = null;
-          this.activeGroupKey = this.fileGroups.some((group) => group.key === currentGroupKey)
-            ? currentGroupKey
-            : this.fileGroups[0]?.key ?? 'all';
+          const preferredFile = options.preferredFileName ? this.resolveReportFileName(options.preferredFileName) : null;
+          const preferredGroupKey = preferredFile
+            ? this.fileGroups.find((group) => group.files.includes(preferredFile))?.key ?? null
+            : null;
+
+          this.activeGroupKey =
+            preferredGroupKey
+            ?? (this.fileGroups.some((group) => group.key === currentGroupKey) ? currentGroupKey : this.fileGroups[0]?.key ?? 'all');
           void this.loadPersistedValidationReport(report);
 
           if (report.files.length) {
-            const preferredFile = this.resolvePreferredFile(this.visibleFiles);
-            if (preferredFile) {
-              void this.selectFile(preferredFile);
+            const selectedFile = preferredFile ?? this.resolvePreferredFile(this.visibleFiles);
+            if (selectedFile) {
+              void this.selectFile(selectedFile);
             }
           }
         },
@@ -1653,13 +1682,4 @@ export class ReportPageComponent implements OnInit {
       .join(' ');
   }
 }
-
-
-
-
-
-
-
-
-
 
