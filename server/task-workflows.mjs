@@ -15,7 +15,6 @@ const ACTION_DEFINITIONS = {
   validate: {
     command: ['native-validation'],
     logPrefix: 'validate',
-    beforeRun: clearTaskLogFiles,
     runNative: runNativeValidateAction,
   },
   'generate-outputs': {
@@ -100,6 +99,8 @@ export function buildTaskWorkflowActionPaths(taskId) {
     promptStructureReport: `_validation/promptstructure_task_${taskId}.json`,
     plsqlCombinedReport: `_validation/plsqlcombined_task_${taskId}.json`,
     namingStandardReport: `_validation/namingstandard_task_${taskId}.json`,
+    artifactAlignmentReport: `_validation/artifactalignment_task_${taskId}.json`,
+    fileIndexReport: `_validation/files/index_task_${taskId}.json`,
   };
 }
 
@@ -228,3 +229,5 @@ function formatTimestampForName(date) {
 function withStatus(error, statusCode) {
   return Object.assign(error, { statusCode });
 }
+
+

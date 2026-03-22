@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getSharedSchemaPath } from '../schema-cache.mjs';
@@ -36,6 +36,9 @@ export async function runNativeGenerateOutputs(taskId, taskDir, logFilePath, con
   } catch (error) {
     logLines.push(`Schema generation skipped: ${error instanceof Error ? error.message : 'unknown error'}`);
   }
+
+  const auditDir = join(taskDir, '_audit');
+  await mkdir(auditDir, { recursive: true });
 
   for (let turnNumber = 1; turnNumber <= numTurns; turnNumber += 1) {
     const codeArtifact = await loadTurnTextArtifact(taskDir, 'turn_reference_answer_file', taskId, turnNumber);
@@ -148,3 +151,4 @@ function buildResult(success, startedAt, taskId, taskDir, logFilePath, artifacts
     summary,
   };
 }
+

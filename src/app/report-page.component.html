@@ -1,74 +1,104 @@
-<section class="report-shell">
+﻿<section class="report-shell">
   <div class="report-header">
     <div class="report-header__main">
-      <div>
-        <p class="eyebrow">Validation report</p>
-        <h2 *ngIf="taskId; else genericHeading">Task {{ taskId }} : Report </h2>
-        <ng-template #genericHeading>
-          <h2>Task output</h2>
-        </ng-template>
+      <div class="report-header__title">
+        <h2> Task {{ taskId }}</h2>
+        <p *ngIf="report?.folderPath" class="eyebrow">{{ report?.folderPath }}</p>
       </div>
 
-      <div class="header-actions">
-        <div class="header-actions__row">
-          <div *ngIf="taskId && !loadingReport" class="workflow-actions">
-            <button
-              type="button"
-              class="action-button"
-              [disabled]="isTaskActionDisabled()"
-              (click)="fetchTaskData()"
-            >
-              {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
-            </button>
-            <button
-              *ngFor="let workflow of workflowActions"
-              type="button"
-              class="action-button"
-              [disabled]="isTaskActionDisabled()"
-              (click)="runWorkflowAction(workflow.action)"
-            >
-              {{ isRunningAction(workflow.action) ? workflow.label + '...' : workflow.label }}
-            </button>
+      <div *ngIf="taskId && !loadingReport && (headerMetaItems.length || headerRequirementItems.length || headerRequirementSummary)" class="report-header__summary">
+        <div class="task-summary">
+          <div *ngIf="headerMetaItems.length" class="task-summary__chips">
+            <span *ngFor="let item of headerMetaItems" class="task-summary__chip">
+              <span class="task-summary__label">{{ item.label }}</span>
+              <span class="task-summary__value">{{ item.value }}</span>
+            </span>
           </div>
 
-          <a routerLink="/" class="link-button">Back to dashboard</a>
+          <div *ngIf="headerRequirementItems.length || headerRequirementSummary" class="task-summary__requirements">
+            <ng-container *ngIf="headerRequirementItems.length; else requirementSummaryFallback">
+              <div class="task-summary__chips task-summary__chips--requirements">
+                <span *ngFor="let item of headerRequirementItems" class="task-summary__chip task-summary__chip--requirement" [class.task-summary__chip--highlight]="item.highlight || item.label === 'Reasoning Types'">
+                  <span class="task-summary__label">{{ item.label }}</span>
+                  <span class="task-summary__value" [class.task-summary__value--highlight]="item.highlight || item.label === 'Reasoning Types'">{{ item.value }}</span>
+                </span>
+              </div>
+            </ng-container>
+            <ng-template #requirementSummaryFallback>
+              <span>{{ headerRequirementSummary }}</span>
+            </ng-template>
+          </div>
         </div>
-
-        <div *ngIf="actionMessage" class="notice header-notice">{{ actionMessage }}</div>
-        <div *ngIf="actionError" class="notice notice--error header-notice">{{ actionError }}</div>
       </div>
     </div>
 
+    <div *ngIf="actionMessage || actionError" class="report-header__full report-header__status">
+      <div *ngIf="actionMessage" class="notice header-notice">{{ actionMessage }}</div>
+      <div *ngIf="actionError" class="notice notice--error header-notice">{{ actionError }}</div>
+    </div>
+
     <div *ngIf="taskId && !loadingReport && fileGroups.length" class="report-header__full report-header__groups">
-      <div class="turn-nav">
-        <button
-          *ngFor="let group of fileGroups"
-          type="button"
-          class="turn-chip"
-          [class.turn-chip--active]="isActiveGroup(group.key)"
-          [class.turn-chip--fail]="getGroupValidationState(group.key) === 'fail'"
-          [class.turn-chip--success]="getGroupValidationState(group.key) === 'success'"
-          (click)="showGroup(group.key)"
-        >
-          {{ group.label }}
-        </button>
+      <div class="report-header__groups-row">
+        <div class="turn-nav">
+          <button
+            *ngFor="let group of fileGroups"
+            type="button"
+            class="turn-chip"
+            [class.turn-chip--active]="isActiveGroup(group.key)"
+            [class.turn-chip--fail]="getGroupValidationState(group.key) === 'fail'"
+            [class.turn-chip--success]="getGroupValidationState(group.key) === 'success'"
+            (click)="showGroup(group.key)"
+          >
+            {{ group.label }}
+          </button>
+        </div>
+
+        <div class="header-actions header-actions--grouped">
+          <div class="header-actions__row">
+            <div *ngIf="taskId && !loadingReport" class="workflow-actions">
+              <button
+                type="button"
+                class="action-button"
+                [disabled]="isTaskActionDisabled()"
+                (click)="fetchTaskData()"
+              >
+                {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
+              </button>
+              <button
+                *ngFor="let workflow of workflowActions"
+                type="button"
+                class="action-button"
+                [disabled]="isTaskActionDisabled()"
+                (click)="runWorkflowAction(workflow.action)"
+              >
+                {{ isRunningAction(workflow.action) ? workflow.label + '...' : workflow.label }}
+              </button>
+            </div>
+
+            <a routerLink="/" class="link-button">Back to dashboard</a>
+          </div>
+        </div>
       </div>
     </div>
 
     <div *ngIf="taskId && !loadingReport && report" class="report-header__full">
       <div class="file-strip-panel file-strip-panel--header">
-        <div *ngIf="visibleFiles.length; else noFiles" class="file-list">
+        <div *ngIf="visibleFiles.length; else noFiles" class="file-list file-list--cards">
           <button
-          *ngFor="let file of visibleFiles"
-          type="button"
-          class="file-item"
-          [class.file-item--active]="isSelectedFile(file.name)"
-          [class.file-item--fail]="getFileValidationState(file.name) === 'fail'"
-          [class.file-item--success]="getFileValidationState(file.name) === 'success'"
-          (click)="selectFile(file.name)"
-          [title]="file.name"
-        >
-            <span class="file-item__name">{{ getDisplayFileButtonLabel(file.name) }}</span>
+            *ngFor="let file of visibleFiles"
+            type="button"
+            class="file-item"
+            [class.file-item--active]="isSelectedFile(file.name)"
+            [class.file-item--fail]="getFileValidationState(file.name) === 'fail'"
+            [class.file-item--success]="getFileValidationState(file.name) === 'success'"
+            (click)="selectFile(file.name)"
+            [title]="file.name"
+          >
+            <span class="file-item__row">
+              <span class="file-item__name">{{ getDisplayFileButtonLabel(file.name) }}</span>
+              <span class="file-item__badge">{{ getFileValidationBadge(file.name) }}</span>
+            </span>
+
           </button>
         </div>
 
@@ -97,299 +127,427 @@
 
     <div *ngIf="taskId && !loadingReport && report" class="report-content">
       <div #reportGrid class="report-grid" [style.--validation-panel-width]="validationPanelWidth + 'px'">
-      <section class="file-preview-panel">
-      <div *ngIf="loadingFile" class="loading-card loading-card--inline" role="status" aria-live="polite">
-        <span class="spinner" aria-hidden="true"></span>
-        <span>Loading file content...</span>
-      </div>
-
-      <div *ngIf="!loadingFile && fileContent as file; else selectPrompt" class="file-preview">
-        <div class="file-preview__header">
-          <div>
-            <h3>{{ file.name }}</h3>
-            <p>{{ file.modifiedAt | date: 'medium' }}</p>
-            <p *ngIf="previewStatusMessage" class="file-preview__status file-preview__status--focus">
-              {{ previewStatusMessage }}
-            </p>
-            <p *ngIf="showEditor" class="file-preview__status" [class.file-preview__status--dirty]="hasUnsavedChanges">
-              {{ editorChangeMessage }}
-            </p>
+        <section class="file-preview-panel">
+          <div *ngIf="loadingFile" class="loading-card loading-card--inline" role="status" aria-live="polite">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading file content...</span>
           </div>
-          <div *ngIf="isEditableFile" class="file-preview__actions">
-            <button *ngIf="!showEditor" type="button" class="action-button action-button--secondary" (click)="enableEditMode()">
-              Edit
-            </button>
-            <button *ngIf="showEditor" type="button" class="action-button action-button--secondary" [disabled]="savingFile" (click)="cancelEditMode()">
-              Close Edit
-            </button>
-            <button *ngIf="showEditor" type="button" class="action-button action-button--secondary" [disabled]="savingFile || !hasUnsavedChanges" (click)="resetEditableFile()">
-              Reset
-            </button>
-            <button *ngIf="showEditor" type="button" class="action-button" [disabled]="savingFile || !hasUnsavedChanges" (click)="saveEditableFile()">
-              {{ savingFile ? 'Saving...' : 'Save' }}
-            </button>
-          </div>
-        </div>
 
-        <textarea
-          *ngIf="showEditor; else readOnlyPreview"
-          #fileEditor
-          [ngModel]="editableContent"
-          (ngModelChange)="handleEditableContentChange($event)"
-          (blur)="handleEditorBlur()"
-          (keydown)="handleEditorKeydown($event)"
-          class="file-editor"
-          spellcheck="false"
-        ></textarea>
-        <ng-template #readOnlyPreview>
-          <div #readOnlyPreview class="file-code-view">
-            <ng-container *ngIf="showStructuredLogView; else standardPreviewLines">
-              <div
-                *ngFor="let line of previewLogLines; let lineIndex = index"
-                class="file-code-line"
-                [class.file-code-line--target]="isTargetPreviewLine(lineIndex + 1)"
-                [attr.data-line]="lineIndex + 1"
-              >
-                <span class="file-code-line__number">{{ lineIndex + 1 }}</span>
-                <button
-                  *ngIf="line.sourceFile; else plainLogLine"
-                  type="button"
-                  class="file-code-line__link"
-                  (click)="jumpToValidationSource(line.sourceFile, line.sourceLine)"
-                >
-                  <span class="file-code-line__content">{{ line.text || ' ' }}</span>
-                  <span class="file-code-line__link-meta">Open {{ logSourceLabel(line) }}</span>
-                </button>
-                <ng-template #plainLogLine>
-                  <span class="file-code-line__content">{{ line.text || ' ' }}</span>
+          <div *ngIf="!loadingFile && fileContent as file; else selectPrompt" class="file-preview">
+            <div class="file-preview__header">
+              <div>
+                <h3>{{ file.name }}</h3>
+                <p>{{ file.modifiedAt | date: 'medium' }}</p>
+                <p *ngIf="previewStatusMessage && activeFileView === 'content'" class="file-preview__status file-preview__status--focus">
+                  {{ previewStatusMessage }}
+                </p>
+                <p *ngIf="showEditor && activeFileView === 'content'" class="file-preview__status" [class.file-preview__status--dirty]="hasUnsavedChanges">
+                  {{ editorChangeMessage }}
+                </p>
+              </div>
+              <div class="file-preview__toolbar">
+                <div class="file-view-tabs" role="tablist" aria-label="Selected file views">
+                  <button
+                    type="button"
+                    class="file-view-tab"
+                    [class.file-view-tab--active]="activeFileView === 'content'"
+                    (click)="selectFileView('content')"
+                  >
+                    Content
+                  </button>
+                  <button
+                    type="button"
+                    class="file-view-tab"
+                    [class.file-view-tab--active]="activeFileView === 'validation'"
+                    [disabled]="!selectedFileValidationEntry"
+                    (click)="selectFileView('validation')"
+                  >
+                    Validation
+                  </button>
+                  <button
+                    type="button"
+                    class="file-view-tab"
+                    [class.file-view-tab--active]="activeFileView === 'raw-log'"
+                    [disabled]="!selectedFileValidationEntry"
+                    (click)="selectFileView('raw-log')"
+                  >
+                    Raw Log
+                  </button>
+                </div>
+
+                <div *ngIf="isEditableFile && activeFileView === 'content'" class="file-preview__actions">
+                  <button *ngIf="!showEditor" type="button" class="action-button action-button--secondary" (click)="enableEditMode()">
+                    Edit
+                  </button>
+                  <button *ngIf="showEditor" type="button" class="action-button action-button--secondary" [disabled]="savingFile" (click)="cancelEditMode()">
+                    Close Edit
+                  </button>
+                  <button *ngIf="showEditor" type="button" class="action-button action-button--secondary" [disabled]="savingFile || !hasUnsavedChanges" (click)="resetEditableFile()">
+                    Reset
+                  </button>
+                  <button *ngIf="showEditor" type="button" class="action-button" [disabled]="savingFile || !hasUnsavedChanges" (click)="saveEditableFile()">
+                    {{ savingFile ? 'Saving...' : 'Save' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <ng-container [ngSwitch]="activeFileView">
+              <div *ngSwitchCase="'content'" class="file-tab-panel">
+                <textarea
+                  *ngIf="showEditor; else readOnlyPreview"
+                  #fileEditor
+                  [ngModel]="editableContent"
+                  (ngModelChange)="handleEditableContentChange($event)"
+                  (blur)="handleEditorBlur()"
+                  (keydown)="handleEditorKeydown($event)"
+                  class="file-editor"
+                  spellcheck="false"
+                ></textarea>
+                <ng-template #readOnlyPreview>
+                  <div #readOnlyPreview class="file-code-view">
+                    <ng-container *ngIf="showStructuredLogView; else standardPreviewLines">
+                      <div
+                        *ngFor="let line of previewLogLines; let lineIndex = index"
+                        class="file-code-line"
+                        [class.file-code-line--target]="isTargetPreviewLine(lineIndex + 1)"
+                        [attr.data-line]="lineIndex + 1"
+                      >
+                        <span class="file-code-line__number">{{ lineIndex + 1 }}</span>
+                        <button
+                          *ngIf="line.sourceFile; else plainLogLine"
+                          type="button"
+                          class="file-code-line__link"
+                          (click)="jumpToValidationSource(line.sourceFile, line.sourceLine)"
+                        >
+                          <span class="file-code-line__content">{{ line.text || ' ' }}</span>
+                          <span class="file-code-line__link-meta">Open {{ logSourceLabel(line) }}</span>
+                        </button>
+                        <ng-template #plainLogLine>
+                          <span class="file-code-line__content">{{ line.text || ' ' }}</span>
+                        </ng-template>
+                      </div>
+                    </ng-container>
+                    <ng-template #standardPreviewLines>
+                      <div
+                        *ngFor="let line of fileContentLines; let lineIndex = index"
+                        class="file-code-line"
+                        [class.file-code-line--target]="isTargetPreviewLine(lineIndex + 1)"
+                        [attr.data-line]="lineIndex + 1"
+                      >
+                        <span class="file-code-line__number">{{ lineIndex + 1 }}</span>
+                        <span class="file-code-line__content">{{ line || ' ' }}</span>
+                      </div>
+                    </ng-template>
+                  </div>
+                </ng-template>
+              </div>
+
+              <div *ngSwitchCase="'validation'" class="file-tab-panel">
+                <div *ngIf="loadingFileValidation" class="loading-card loading-card--inline" role="status" aria-live="polite">
+                  <span class="spinner" aria-hidden="true"></span>
+                  <span>Loading file validation...</span>
+                </div>
+                <div *ngIf="!loadingFileValidation && hasSelectedFileValidationContent; else noFileValidation" class="validation-sections validation-sections--embedded">
+                  <section class="validation-summary-box">
+                    <div *ngIf="fileValidationSummaryItems.length" class="validation-summary-group">
+                      <h4>File Validation Summary</h4>
+                      <div class="validation-summary-rows">
+                        <div *ngFor="let item of fileValidationSummaryItems" class="validation-summary-row">
+                          <span class="validation-item__label">{{ item.label }}</span>
+                          <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
+                            {{ item.value }}
+                          </strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div *ngFor="let group of selectedFileValidationGroups" class="validation-summary-group">
+                      <h4>{{ group.title }}</h4>
+                      <div class="validation-summary-rows validation-summary-rows--dense">
+                        <div *ngFor="let row of group.rows" class="validation-summary-entry">
+                          <div class="validation-summary-row">
+                            <span class="validation-item__label">{{ row.item }}</span>
+                            <div class="validation-summary-row__actions">
+                              <strong class="validation-item__value" [class.validation-item__value--good]="checklistTone(row.status) === 'good'" [class.validation-item__value--warn]="checklistTone(row.status) === 'warn'">
+                                {{ row.status }}
+                              </strong>
+                              <button type="button" class="validation-copy-button" (click)="copyValidationText(formatChecklistCopyText(row))">
+                                Copy
+                              </button>
+                            </div>
+                          </div>
+                          <p class="validation-summary-note">Expected: {{ describeChecklistExpectation(row) }}</p>
+                          <p class="validation-summary-note">Found: {{ describeChecklistFinding(row) }}</p>
+                          <p class="validation-summary-note">File Name: {{ describeChecklistSource(row) }}</p>
+                          <p *ngIf="row.update" class="validation-summary-note">Fix: {{ row.update }}</p>
+                          <button *ngIf="row.sourceFile" type="button" class="validation-summary-link" (click)="jumpToValidationSource(row.sourceFile, row.line)">
+                            {{ formatSourceLocation(row.sourceFile, row.line) }}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div *ngFor="let group of selectedFileFailureGroups" class="validation-summary-group">
+                      <h4>{{ group.title }}</h4>
+                      <div class="validation-summary-rows validation-summary-rows--dense">
+                        <div *ngFor="let row of group.rows" class="validation-summary-entry">
+                          <div class="validation-summary-row">
+                            <ng-container *ngIf="row.sourceFile; else staticFileFailureLabel">
+                              <button type="button" class="validation-summary-link validation-summary-link--title" (click)="jumpToValidationSource(row.sourceFile, row.line)">
+                                {{ row.item }}
+                              </button>
+                            </ng-container>
+                            <ng-template #staticFileFailureLabel>
+                              <span class="validation-item__label">{{ row.item }}</span>
+                            </ng-template>
+                            <div class="validation-summary-row__actions">
+                              <strong class="validation-item__value validation-item__value--warn">
+                                {{ row.present || row.expected || 'Failed' }}
+                              </strong>
+                              <button type="button" class="validation-copy-button" (click)="copyValidationText(formatFailureCopyText(row, group.title))">
+                                Copy
+                              </button>
+                            </div>
+                          </div>
+                          <p *ngIf="row.expected" class="validation-summary-note">Expected: {{ row.expected }}</p>
+                          <p class="validation-summary-note">Found: {{ row.present || row.expected || 'Failed' }}</p>
+                          <p class="validation-summary-note">File Name: {{ row.sourceFile ? formatSourceLocation(row.sourceFile, row.line) : 'N/A' }}</p>
+                          <p *ngIf="row.update" class="validation-summary-note">Fix: {{ row.update }}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+                <ng-template #noFileValidation>
+                  <div class="empty-state empty-state--compact">
+                    <h3>No file validation report</h3>
+                    <p>Select a task source file with validation output to inspect its file-owned report.</p>
+                  </div>
+                </ng-template>
+              </div>
+
+              <div *ngSwitchCase="'raw-log'" class="file-tab-panel">
+                <div *ngIf="loadingFileRawLog" class="loading-card loading-card--inline" role="status" aria-live="polite">
+                  <span class="spinner" aria-hidden="true"></span>
+                  <span>Loading raw file log...</span>
+                </div>
+                <div *ngIf="!loadingFileRawLog && selectedFileRawLog; else noFileLog" class="file-code-view">
+                  <div *ngFor="let line of selectedFileRawLogPreviewLines; let lineIndex = index" class="file-code-line" [attr.data-line]="lineIndex + 1">
+                    <span class="file-code-line__number">{{ lineIndex + 1 }}</span>
+                    <button *ngIf="line.sourceFile; else plainFileLogLine" type="button" class="file-code-line__link" (click)="jumpToValidationSource(line.sourceFile, line.sourceLine)">
+                      <span class="file-code-line__content">{{ line.text || ' ' }}</span>
+                      <span class="file-code-line__link-meta">Open {{ logSourceLabel(line) }}</span>
+                    </button>
+                    <ng-template #plainFileLogLine>
+                      <span class="file-code-line__content">{{ line.text || ' ' }}</span>
+                    </ng-template>
+                  </div>
+                </div>
+                <ng-template #noFileLog>
+                  <div class="empty-state empty-state--compact">
+                    <h3>No raw file log</h3>
+                    <p>This file does not have a generated file-level raw log yet.</p>
+                  </div>
                 </ng-template>
               </div>
             </ng-container>
-            <ng-template #standardPreviewLines>
-              <div
-                *ngFor="let line of fileContentLines; let lineIndex = index"
-                class="file-code-line"
-                [class.file-code-line--target]="isTargetPreviewLine(lineIndex + 1)"
-                [attr.data-line]="lineIndex + 1"
-              >
-                <span class="file-code-line__number">{{ lineIndex + 1 }}</span>
-                <span class="file-code-line__content">{{ line || ' ' }}</span>
-              </div>
-            </ng-template>
           </div>
-        </ng-template>
-      </div>
 
-      <ng-template #selectPrompt>
-        <div *ngIf="!visibleFiles.length" class="empty-state empty-state--compact">
-          <h3>No files found</h3>
-          <p>No files are available for the selected turn yet.</p>
-        </div>
-        <div *ngIf="visibleFiles.length && !loadingFile && !fileContent" class="empty-state empty-state--compact">
-          <h3>Select a file</h3>
-          <p>Choose a file from the file strip above to preview its contents.</p>
-        </div>
-      </ng-template>
-    </section>
-
-    <div
-      class="report-grid__resizer"
-      role="separator"
-      tabindex="0"
-      aria-label="Resize preview and validation panels"
-      aria-orientation="vertical"
-      (pointerdown)="startPanelResize($event)"
-      (keydown)="handlePanelResizeKeydown($event)"
-      (dblclick)="resetValidationPanelWidth()"
-    ></div>
-
-    <aside class="validation-panel">
-      <div class="validation-panel__header">
-        <div class="validation-panel__title-row">
-          <h3>Validation Report</h3>
-          <div class="validation-filter-toggles">
-            <label class="validation-filter-toggle">
-              <input type="checkbox" [(ngModel)]="showCurrentFileErrorsOnly" />
-              <span>Current file only</span>
-            </label>
-            <label class="validation-filter-toggle">
-              <input type="checkbox" [(ngModel)]="showFailuresOnly" />
-              <span>Failures only</span>
-            </label>
-          </div>
-        </div>
-        <p>{{ validationFilterDescription }}</p>
-      </div>
-
-      <div *ngIf="hasValidationContent; else noValidation" class="validation-sections">
-        <section class="validation-summary-box">
-          <div *ngIf="showSummarySections && topValidationAlerts.length" class="validation-summary-group">
-            <h4>Top Validation Errors</h4>
-            <p class="validation-summary-caption">
-              {{ topValidationAlerts.length }} of {{ totalValidationFailures }} failure{{ totalValidationFailures === 1 ? '' : 's' }} shown.
-              <span *ngIf="hasMoreValidationAlerts">More items appear below.</span>
-            </p>
-            <div class="validation-summary-rows validation-summary-rows--dense">
-              <div *ngFor="let alert of topValidationAlerts" class="validation-summary-entry validation-summary-entry--alert">
-                <div class="validation-summary-entry__actions">
-                  <button
-                    *ngIf="alert.sourceFile; else staticAlertTitle"
-                    type="button"
-                    class="validation-summary-link validation-summary-link--title"
-                    (click)="jumpToValidationSource(alert.sourceFile, alert.line)"
-                  >
-                    {{ formatValidationAlertTitle(alert) }}
-                  </button>
-                  <ng-template #staticAlertTitle>
-                    <span class="validation-item__label validation-item__label--strong">{{ formatValidationAlertTitle(alert) }}</span>
-                  </ng-template>
-                  <button
-                    type="button"
-                    class="validation-copy-button"
-                    (click)="copyValidationText(formatTopValidationAlertCopyText(alert))"
-                  >
-                    Copy
-                  </button>
-                </div>
-                <p class="validation-summary-note">Expected: {{ alert.expected || 'This validation check should pass.' }}</p>
-                <p class="validation-summary-note">Found: {{ alert.present || 'Validation failed.' }}</p>
-                <p *ngIf="alert.sourceFile" class="validation-summary-note">{{ formatSourceLocation(alert.sourceFile, alert.line) }}</p>
-              </div>
+          <ng-template #selectPrompt>
+            <div *ngIf="!visibleFiles.length" class="empty-state empty-state--compact">
+              <h3>No files found</h3>
+              <p>No files are available for the selected turn yet.</p>
             </div>
-          </div>
-
-          <div *ngIf="showSummarySections" class="validation-summary-group" [hidden]="!lastActionSummary.length">
-            <ng-container *ngFor="let section of lastActionSummary">
-              <h4>{{ section.title }}</h4>
-              <div class="validation-summary-rows">
-                <div *ngFor="let item of section.items" class="validation-summary-row">
-                  <span class="validation-item__label">{{ item.label }}</span>
-                  <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
-                    {{ item.value }}
-                  </strong>
-                </div>
-              </div>
-            </ng-container>
-          </div>
-
-          <div *ngIf="showSummarySections" class="validation-summary-group" [hidden]="!validationSummarySections.length">
-            <ng-container *ngFor="let section of validationSummarySections">
-              <h4>{{ section.title }}</h4>
-              <div class="validation-summary-rows">
-                <div *ngFor="let item of section.items" class="validation-summary-row">
-                  <span class="validation-item__label">{{ item.label }}</span>
-                  <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
-                    {{ item.value }}
-                  </strong>
-                </div>
-              </div>
-            </ng-container>
-          </div>
-
-          <div *ngIf="showSummarySections" class="validation-summary-group" [hidden]="!validationSections.length">
-            <ng-container *ngFor="let section of validationSections">
-              <h4>{{ section.title }}</h4>
-              <div class="validation-summary-rows">
-                <div *ngFor="let item of section.items" class="validation-summary-row">
-                  <span class="validation-item__label">{{ item.label }}</span>
-                  <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
-                    {{ item.value }}
-                  </strong>
-                </div>
-              </div>
-            </ng-container>
-          </div>
-
-          <div *ngFor="let group of validationChecklistGroups" class="validation-summary-group">
-            <h4>{{ group.title }}</h4>
-            <div class="validation-summary-rows validation-summary-rows--dense">
-              <div *ngFor="let row of group.rows" class="validation-summary-entry">
-                <div class="validation-summary-row">
-                  <span class="validation-item__label">{{ row.item }}</span>
-                  <div class="validation-summary-row__actions">
-                    <strong
-                      class="validation-item__value"
-                      [class.validation-item__value--good]="checklistTone(row.status) === 'good'"
-                      [class.validation-item__value--warn]="checklistTone(row.status) === 'warn'"
-                    >
-                      {{ row.status }}
-                    </strong>
-                    <button
-                      type="button"
-                      class="validation-copy-button"
-                      (click)="copyValidationText(formatChecklistCopyText(row))"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-                <p class="validation-summary-note">Expected: {{ describeChecklistExpectation(row) }}</p>
-                <p class="validation-summary-note">Found: {{ describeChecklistFinding(row) }}</p>
-                <p class="validation-summary-note">Status: {{ row.status }}</p>
-                <p class="validation-summary-note">File Name: {{ describeChecklistSource(row) }}</p>
-                <p *ngIf="row.update" class="validation-summary-note">Fix: {{ row.update }}</p>
-                <button
-                  *ngIf="row.sourceFile"
-                  type="button"
-                  class="validation-summary-link"
-                  (click)="jumpToValidationSource(row.sourceFile, row.line)"
-                >
-                  {{ formatSourceLocation(row.sourceFile, row.line) }}
-                </button>
-              </div>
+            <div *ngIf="visibleFiles.length && !loadingFile && !fileContent" class="empty-state empty-state--compact">
+              <h3>Select a file</h3>
+              <p>Choose a file from the file strip above to preview its contents.</p>
             </div>
-          </div>
-
-          <div *ngFor="let group of validationFailureGroups" class="validation-summary-group">
-            <h4>{{ group.title }}</h4>
-            <div class="validation-summary-rows validation-summary-rows--dense">
-              <div *ngFor="let row of group.rows" class="validation-summary-entry">
-                <div class="validation-summary-row">
-                  <ng-container *ngIf="row.sourceFile; else staticFailureLabel">
-                    <button
-                      type="button"
-                      class="validation-summary-link validation-summary-link--title"
-                      (click)="jumpToValidationSource(row.sourceFile, row.line)"
-                    >
-                      {{ row.item }}
-                    </button>
-                  </ng-container>
-                  <ng-template #staticFailureLabel>
-                    <span class="validation-item__label">{{ row.item }}</span>
-                  </ng-template>
-                  <div class="validation-summary-row__actions">
-                    <strong class="validation-item__value validation-item__value--warn">
-                      {{ row.present || row.expected || 'Failed' }}
-                    </strong>
-                    <button
-                      type="button"
-                      class="validation-copy-button"
-                      (click)="copyValidationText(formatFailureCopyText(row, group.title))"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-                <p *ngIf="row.expected" class="validation-summary-note">Expected: {{ row.expected }}</p>
-                <p class="validation-summary-note">Found: {{ row.present || row.expected || 'Failed' }}</p>
-                <p class="validation-summary-note">Status: FAIL</p>
-                <p class="validation-summary-note">File Name: {{ row.sourceFile ? formatSourceLocation(row.sourceFile, row.line) : 'N/A' }}</p>
-                <p *ngIf="row.update" class="validation-summary-note">Fix: {{ row.update }}</p>
-              </div>
-            </div>
-          </div>
+          </ng-template>
         </section>
-      </div>
 
-      <ng-template #noValidation>
-        <div class="empty-state empty-state--compact">
-          <h3>No validation report</h3>
-          <p>Select a file to see its validation details.</p>
-        </div>
-      </ng-template>
-      </aside>
+        <div
+          class="report-grid__resizer"
+          role="separator"
+          tabindex="0"
+          aria-label="Resize preview and validation panels"
+          aria-orientation="vertical"
+          (pointerdown)="startPanelResize($event)"
+          (keydown)="handlePanelResizeKeydown($event)"
+          (dblclick)="resetValidationPanelWidth()"
+        ></div>
+
+        <aside class="validation-panel">
+          <div class="validation-panel__header">
+            <div class="validation-panel__title-row">
+              <h3>Task Validation Overview</h3>
+              <div class="validation-filter-toggles">
+                <label class="validation-filter-toggle">
+                  <input type="checkbox" [(ngModel)]="showCurrentFileErrorsOnly" />
+                  <span>Current file only</span>
+                </label>
+                <label class="validation-filter-toggle">
+                  <input type="checkbox" [(ngModel)]="showFailuresOnly" />
+                  <span>Failures only</span>
+                </label>
+              </div>
+            </div>
+            <p>{{ validationFilterDescription }}</p>
+          </div>
+
+          <div *ngIf="hasValidationContent; else noValidation" class="validation-sections">
+            <section class="validation-summary-box">
+              <div *ngIf="showSummarySections && topValidationAlerts.length" class="validation-summary-group">
+                <h4>Top Validation Errors</h4>
+                <p class="validation-summary-caption">
+                  {{ topValidationAlerts.length }} of {{ totalValidationFailures }} failure{{ totalValidationFailures === 1 ? '' : 's' }} shown.
+                  <span *ngIf="hasMoreValidationAlerts">More items appear below.</span>
+                </p>
+                <div class="validation-summary-rows validation-summary-rows--dense">
+                  <div *ngFor="let alert of topValidationAlerts" class="validation-summary-entry validation-summary-entry--alert">
+                    <div class="validation-summary-entry__actions">
+                      <button *ngIf="alert.sourceFile; else staticAlertTitle" type="button" class="validation-summary-link validation-summary-link--title" (click)="jumpToValidationSource(alert.sourceFile, alert.line)">
+                        {{ formatValidationAlertTitle(alert) }}
+                      </button>
+                      <ng-template #staticAlertTitle>
+                        <span class="validation-item__label validation-item__label--strong">{{ formatValidationAlertTitle(alert) }}</span>
+                      </ng-template>
+                      <button type="button" class="validation-copy-button" (click)="copyValidationText(formatTopValidationAlertCopyText(alert))">
+                        Copy
+                      </button>
+                    </div>
+                    <p class="validation-summary-note">Expected: {{ alert.expected || 'This validation check should pass.' }}</p>
+                    <p class="validation-summary-note">Found: {{ alert.present || 'Validation failed.' }}</p>
+                    <p *ngIf="alert.sourceFile" class="validation-summary-note">{{ formatSourceLocation(alert.sourceFile, alert.line) }}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div *ngIf="showSummarySections" class="validation-summary-group" [hidden]="!lastActionSummary.length">
+                <ng-container *ngFor="let section of lastActionSummary">
+                  <h4>{{ section.title }}</h4>
+                  <div class="validation-summary-rows">
+                    <div *ngFor="let item of section.items" class="validation-summary-row">
+                      <span class="validation-item__label">{{ item.label }}</span>
+                      <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
+                        {{ item.value }}
+                      </strong>
+                    </div>
+                  </div>
+                </ng-container>
+              </div>
+
+              <div *ngIf="showSummarySections" class="validation-summary-group" [hidden]="!validationSummarySections.length">
+                <ng-container *ngFor="let section of validationSummarySections">
+                  <h4>{{ section.title }}</h4>
+                  <div class="validation-summary-rows">
+                    <div *ngFor="let item of section.items" class="validation-summary-row">
+                      <span class="validation-item__label">{{ item.label }}</span>
+                      <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
+                        {{ item.value }}
+                      </strong>
+                    </div>
+                  </div>
+                </ng-container>
+              </div>
+
+              <div *ngIf="showSummarySections" class="validation-summary-group" [hidden]="!validationSections.length">
+                <ng-container *ngFor="let section of validationSections">
+                  <h4>{{ section.title }}</h4>
+                  <div class="validation-summary-rows">
+                    <div *ngFor="let item of section.items" class="validation-summary-row">
+                      <span class="validation-item__label">{{ item.label }}</span>
+                      <strong class="validation-item__value" [class.validation-item__value--good]="item.tone === 'good'" [class.validation-item__value--warn]="item.tone === 'warn'">
+                        {{ item.value }}
+                      </strong>
+                    </div>
+                  </div>
+                </ng-container>
+              </div>
+
+              <div *ngFor="let group of validationChecklistGroups" class="validation-summary-group">
+                <h4>{{ group.title }}</h4>
+                <div class="validation-summary-rows validation-summary-rows--dense">
+                  <div *ngFor="let row of group.rows" class="validation-summary-entry">
+                    <div class="validation-summary-row">
+                      <span class="validation-item__label">{{ row.item }}</span>
+                      <div class="validation-summary-row__actions">
+                        <strong class="validation-item__value" [class.validation-item__value--good]="checklistTone(row.status) === 'good'" [class.validation-item__value--warn]="checklistTone(row.status) === 'warn'">
+                          {{ row.status }}
+                        </strong>
+                        <button type="button" class="validation-copy-button" (click)="copyValidationText(formatChecklistCopyText(row))">
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                    <p class="validation-summary-note">Expected: {{ describeChecklistExpectation(row) }}</p>
+                    <p class="validation-summary-note">Found: {{ describeChecklistFinding(row) }}</p>
+                    <p class="validation-summary-note">Status: {{ row.status }}</p>
+                    <p class="validation-summary-note">File Name: {{ describeChecklistSource(row) }}</p>
+                    <p *ngIf="row.update" class="validation-summary-note">Fix: {{ row.update }}</p>
+                    <button *ngIf="row.sourceFile" type="button" class="validation-summary-link" (click)="jumpToValidationSource(row.sourceFile, row.line)">
+                      {{ formatSourceLocation(row.sourceFile, row.line) }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div *ngFor="let group of validationFailureGroups" class="validation-summary-group">
+                <h4>{{ group.title }}</h4>
+                <div class="validation-summary-rows validation-summary-rows--dense">
+                  <div *ngFor="let row of group.rows" class="validation-summary-entry">
+                    <div class="validation-summary-row">
+                      <ng-container *ngIf="row.sourceFile; else staticFailureLabel">
+                        <button type="button" class="validation-summary-link validation-summary-link--title" (click)="jumpToValidationSource(row.sourceFile, row.line)">
+                          {{ row.item }}
+                        </button>
+                      </ng-container>
+                      <ng-template #staticFailureLabel>
+                        <span class="validation-item__label">{{ row.item }}</span>
+                      </ng-template>
+                      <div class="validation-summary-row__actions">
+                        <strong class="validation-item__value validation-item__value--warn">
+                          {{ row.present || row.expected || 'Failed' }}
+                        </strong>
+                        <button type="button" class="validation-copy-button" (click)="copyValidationText(formatFailureCopyText(row, group.title))">
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                    <p *ngIf="row.expected" class="validation-summary-note">Expected: {{ row.expected }}</p>
+                    <p class="validation-summary-note">Found: {{ row.present || row.expected || 'Failed' }}</p>
+                    <p class="validation-summary-note">Status: FAIL</p>
+                    <p class="validation-summary-note">File Name: {{ row.sourceFile ? formatSourceLocation(row.sourceFile, row.line) : 'N/A' }}</p>
+                    <p *ngIf="row.update" class="validation-summary-note">Fix: {{ row.update }}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <ng-template #noValidation>
+            <div class="empty-state empty-state--compact">
+              <h3>No validation report</h3>
+              <p>Select a file to see its validation details.</p>
+            </div>
+          </ng-template>
+        </aside>
       </div>
     </div>
   </div>
 </section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

@@ -166,11 +166,40 @@ export interface ValidationRunSummary {
   reportFile: string;
 }
 
+export interface ValidationFileRunSummary {
+  validator: string;
+  success: boolean;
+  summary: ValidationSummary;
+}
+
+export interface ValidationFileReportIndexEntry {
+  sourceFile: string;
+  turnId: number | null;
+  reportFile: string;
+  logFile: string;
+  summary: ValidationSummary;
+  validators: ValidationFileRunSummary[];
+}
+
 export interface ValidationReportFiles {
   master: string;
   promptStructure: string;
   plsqlCombined: string;
   namingStandard: string;
+  artifactAlignment: string;
+  fileIndex: string;
+}
+
+export interface ValidationFileReport {
+  validator: string;
+  generatedAt: string;
+  taskId: string;
+  sourceFile: string;
+  turnId: number | null;
+  summary: ValidationSummary;
+  validators: ValidationFileRunSummary[];
+  checklist: ValidationChecklistEntry[];
+  results: ValidationResultRow[];
 }
 
 export interface ValidationMasterReport {
@@ -182,4 +211,5 @@ export interface ValidationMasterReport {
   checklistCatalog: ValidationChecklistCatalogEntry[];
   checklist: ValidationChecklistEntry[];
   results: ValidationResultRow[];
+  fileReports: ValidationFileReportIndexEntry[];
 }

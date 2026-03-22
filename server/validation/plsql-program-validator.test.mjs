@@ -1,4 +1,4 @@
-﻿import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -57,7 +57,7 @@ test('runPlsqlProgramValidator emits PASS artifact checks for native analyzer fi
     ]);
 
     for (const [item] of expectedArtifacts) {
-      const row = checklist.find((entry) => entry.item === item);
+      const row = checklist.find((entry) => entry.validator === VALIDATOR_NAMES.plsqlProgram && entry.item === item);
       assert.ok(row, `missing checklist row for ${item}`);
       assert.equal(row.status, 'PASS');
     }
@@ -65,4 +65,5 @@ test('runPlsqlProgramValidator emits PASS artifact checks for native analyzer fi
     await rm(root, { recursive: true, force: true });
   }
 });
+
 

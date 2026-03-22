@@ -7,7 +7,12 @@
     "start:client": "ng serve",
     "start:server": "node server/server.mjs",
     "build": "ng build",
-    "test:backend": "node --test server/**/*.test.mjs"
+    "test:backend": "node --test server/**/*.test.mjs",
+    "test:frontend:unit": "tsx --test src/**/*.test.ts",
+    "test:frontend:typecheck": "tsc -p tsconfig.app.json --noEmit",
+    "test:frontend": "npm-run-all test:frontend:unit test:frontend:typecheck",
+    "test": "npm-run-all test:backend test:frontend",
+    "verify:major-change": "npm-run-all test build"
   },
   "dependencies": {
     "@angular/common": "^19.2.0",
@@ -27,6 +32,7 @@
     "@angular/cli": "^19.2.0",
     "@angular/compiler-cli": "^19.2.0",
     "npm-run-all": "^4.1.5",
+    "tsx": "^4.19.3",
     "typescript": "^5.7.2"
   },
   "engines": {

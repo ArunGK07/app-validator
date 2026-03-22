@@ -15,6 +15,7 @@ import { runPromptStructureValidator } from './prompt-structure-validator.mjs';
 import { runPlsqlProgramValidator } from './plsql-program-validator.mjs';
 import { runComplexityTableCountValidator } from './complexity-table-count-validator.mjs';
 import { runNamingStandardValidator } from './naming-standard-validator.mjs';
+import { runArtifactAlignmentValidator } from './artifact-alignment-validator.mjs';
 
 export async function runNativeValidation(taskId, taskDir, logFilePath, dependencies = {}) {
   const startedAt = new Date();
@@ -33,6 +34,9 @@ export async function runNativeValidation(taskId, taskDir, logFilePath, dependen
     : [];
   const namingResults = metadataResult.metadata
     ? await runNamingStandardValidator(taskId, taskDir, metadataResult.metadata, dependencies.naming ?? {})
+    : [];
+  const artifactAlignmentResults = metadataResult.metadata
+    ? await runArtifactAlignmentValidator(taskId, taskDir, metadataResult.metadata)
     : [];
 
   const validatorReports = [
@@ -54,11 +58,18 @@ export async function runNativeValidation(taskId, taskDir, logFilePath, dependen
       results: namingResults,
       summary: summarizeResults(namingResults),
     },
+    {
+      validator: VALIDATOR_NAMES.artifactAlignment,
+      reportFile: `_validation/${reportNames.artifactAlignment}`,
+      results: artifactAlignmentResults,
+      summary: summarizeResults(artifactAlignmentResults),
+    },
   ];
 
   const promptReportPath = join(validationDir, reportNames.promptStructure);
   const combinedReportPath = join(validationDir, reportNames.plsqlCombined);
   const namingReportPath = join(validationDir, reportNames.namingStandard);
+  const artifactAlignmentReportPath = join(validationDir, reportNames.artifactAlignment);
   const masterReportPath = join(validationDir, reportNames.master);
 
   const promptReport = await writeValidationReport(promptReportPath, VALIDATOR_NAMES.promptStructure, promptResults);
@@ -74,6 +85,11 @@ export async function runNativeValidation(taskId, taskDir, logFilePath, dependen
     },
   );
   const namingReport = await writeValidationReport(namingReportPath, VALIDATOR_NAMES.namingStandard, namingResults);
+  const artifactAlignmentReport = await writeValidationReport(
+    artifactAlignmentReportPath,
+    VALIDATOR_NAMES.artifactAlignment,
+    artifactAlignmentResults,
+  );
   const masterReport = await writeMasterValidationReport(masterReportPath, taskId, validatorReports);
 
   await writeFile(logFilePath, formatLogText(masterReport, validatorReports), 'utf8');
@@ -93,7 +109,18 @@ export async function runNativeValidation(taskId, taskDir, logFilePath, dependen
     logFile: logFilePath,
     stdoutTail: '',
     stderrTail: '',
-    artifacts: [promptReportPath, combinedReportPath, namingReportPath, masterReportPath],
+    artifacts: [
+      promptReportPath,
+      combinedReportPath,
+      namingReportPath,
+      artifactAlignmentReportPath,
+      masterReportPath,
+      join(validationDir, reportNames.fileIndex),
+      ...masterReport.fileReports.flatMap((entry) => [
+        join(taskDir, entry.reportFile),
+        join(taskDir, entry.logFile),
+      ]),
+    ],
     summary: masterReport.summary,
     validators: validatorReports.map((report) => ({
       validator: report.validator,
@@ -106,12 +133,15 @@ export async function runNativeValidation(taskId, taskDir, logFilePath, dependen
       promptStructure: `_validation/${reportNames.promptStructure}`,
       plsqlCombined: `_validation/${reportNames.plsqlCombined}`,
       namingStandard: `_validation/${reportNames.namingStandard}`,
+      artifactAlignment: `_validation/${reportNames.artifactAlignment}`,
+      fileIndex: `_validation/${reportNames.fileIndex}`,
     },
     reportPayloads: {
       master: masterReport,
       promptStructure: promptReport,
       plsqlCombined: combinedReport,
       namingStandard: namingReport,
+      artifactAlignment: artifactAlignmentReport,
     },
   };
 }

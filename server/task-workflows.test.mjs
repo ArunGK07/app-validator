@@ -47,27 +47,42 @@ async function writeValidationFixture(taskDir, taskId = '9418') {
       'Parameters:',
       '\tp_input - IN - NUMBER -- input value',
       'Output:',
-      '\tresult row is printed',
+      '\tUnexpected error occurred',
       'Exception Handling:',
       '\tOther Exception : Unexpected error occurred',
     ].join('\n'),
     'utf8',
   );
   await writeFile(join(taskDir, `${taskId}_turn1_2tables.txt`), 'SAMPLE.TABLE_A\nSAMPLE.TABLE_B\n', 'utf8');
+  await writeFile(join(taskDir, `${taskId}_turn1_3columns.txt`), 'SAMPLE.TABLE_A.COL_A\n', 'utf8');
   await writeFile(
     join(taskDir, `${taskId}_turn1_4referenceAnswer.sql`),
     [
       'CREATE OR REPLACE PROCEDURE sp_do_work(p_input IN NUMBER) IS',
       'BEGIN',
-      '  NULL;',
+      "  DBMS_OUTPUT.PUT_LINE('Unexpected error occurred');",
       'EXCEPTION',
       '  WHEN OTHERS THEN',
-      '    NULL;',
+      "    DBMS_OUTPUT.PUT_LINE('Unexpected error occurred');",
       'END;',
       '/',
     ].join('\n'),
     'utf8',
   );
+  await writeFile(
+    join(taskDir, `${taskId}_turn1_5testCases.sql`),
+    [
+      'Test Case 1:',
+      'execution_instructions:',
+      'BEGIN sp_do_work(1); END;',
+      'execution_result:',
+      'Unexpected error occurred',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await writeFile(join(taskDir, `${taskId}_turn1_6reasoningTypes.txt`), 'Exception Handling\n', 'utf8');
+  await writeFile(join(taskDir, `${taskId}_turn1_7plSqlConstructs.txt`), 'CREATE OR REPLACE PROCEDURE\n', 'utf8');
 }
 
 async function writeWorkflowFixture(taskDir, taskId = '9462') {
@@ -158,13 +173,15 @@ test('runTaskWorkflowAction(validate) writes native validation reports and struc
     assert.equal(result.action, 'validate');
     assert.deepEqual(result.command, ['native-validation']);
     assert.equal(result.summary.validatorsFailed, 0);
-    assert.equal(result.validators?.length, 3);
+    assert.equal(result.validators?.length, 4);
     assert.equal(result.reports?.master, '_validation/master_validator_task_9418.json');
-    assert.equal(result.artifacts.length, 4);
+    assert.equal(result.reports?.artifactAlignment, '_validation/artifactalignment_task_9418.json');
+    assert.equal(result.reports?.fileIndex, '_validation/files/index_task_9418.json');
+    assert.ok(result.artifacts.length >= 7);
     assert.match(result.logFile, /_logs[\\\/]validate-/);
     const masterReport = JSON.parse(await readFile(join(taskDir, '_validation', 'master_validator_task_9418.json'), 'utf8'));
     assert.equal(masterReport.summary.validatorsFailed, 0);
-    assert.equal(masterReport.validators.length, 3);
+    assert.equal(masterReport.validators.length, 4);
     assert.ok(Array.isArray(masterReport.checklist));
     assert.ok(masterReport.checklist.length > 0);
   } finally {
@@ -172,7 +189,7 @@ test('runTaskWorkflowAction(validate) writes native validation reports and struc
   }
 });
 
-test('runTaskWorkflowAction(validate) clears existing log files before launching the validator', async () => {
+test('runTaskWorkflowAction(validate) preserves existing logs and writes the latest validation log', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-workflows-'));
   const taskOutputDir = join(root, 'task-output');
   const taskDir = join(taskOutputDir, '9418');
@@ -206,8 +223,8 @@ test('runTaskWorkflowAction(validate) clears existing log files before launching
       },
     );
 
-    await assert.rejects(readFile(staleValidateLog, 'utf8'));
-    await assert.rejects(readFile(stalePublishLog, 'utf8'));
+    assert.equal(await readFile(staleValidateLog, 'utf8'), 'old validate log');
+    assert.equal(await readFile(stalePublishLog, 'utf8'), 'old publish log');
     assert.equal(await readFile(retainedPropertiesFile, 'utf8'), 'Cookie=keep\n');
     assert.match(await readFile(result.logFile, 'utf8'), /Validation run completed/);
   } finally {
@@ -269,14 +286,14 @@ test('runTaskWorkflowAction(generate-outputs) writes native analyzer artifacts',
     assert.equal(result.success, true);
     assert.deepEqual(result.command, ['native-generate-outputs']);
     assert.match(await readFile(join(taskDir, '9462_turn1_6reasoningTypes.txt'), 'utf8'), /Data Retrieval/);
-    const reasoningAudit = JSON.parse(await readFile(join(taskDir, '9462_turn1_6reasoningTypes.audit.json'), 'utf8'));
+    const reasoningAudit = JSON.parse(await readFile(join(taskDir, '_audit', '9462_turn1_6reasoningTypes.audit.json'), 'utf8'));
     assert.equal(reasoningAudit.totalItemsConsidered, PLSQL_REASONING_TYPE_CATALOG.length);
     assert.ok(Array.isArray(reasoningAudit.items));
     assert.equal(reasoningAudit.items.length, PLSQL_REASONING_TYPE_CATALOG.length);
     assert.ok(reasoningAudit.items.every((entry) => entry.considered === true));
     assert.ok(reasoningAudit.items.some((entry) => entry.label === 'Data Retrieval' && entry.matched));
     assert.match(await readFile(join(taskDir, '9462_turn1_7plSqlConstructs.txt'), 'utf8'), /CREATE OR REPLACE PROCEDURE/);
-    const constructsAudit = JSON.parse(await readFile(join(taskDir, '9462_turn1_7plSqlConstructs.audit.json'), 'utf8'));
+    const constructsAudit = JSON.parse(await readFile(join(taskDir, '_audit', '9462_turn1_7plSqlConstructs.audit.json'), 'utf8'));
     assert.equal(constructsAudit.totalItemsConsidered, PLSQL_CONSTRUCT_CATALOG.length);
     assert.ok(Array.isArray(constructsAudit.items));
     assert.equal(constructsAudit.items.length, PLSQL_CONSTRUCT_CATALOG.length);
@@ -385,3 +402,9 @@ test('runTaskWorkflowAction(publish) uses the native GraphQL publisher', async (
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+
+
+
+

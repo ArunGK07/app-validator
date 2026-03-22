@@ -3,6 +3,7 @@
   plsqlProgram: 'PLSQLProgramValidator',
   complexityTableCount: 'ComplexityTableCountValidator',
   namingStandard: 'NamingStandardValidator',
+  artifactAlignment: 'ArtifactAlignmentValidator',
 };
 
 export const VALIDATION_CHECKLIST_CATALOG = [
@@ -175,6 +176,84 @@ export const VALIDATION_CHECKLIST_CATALOG = [
     item: 'WHEN OTHERS Contract',
     ruleIds: ['contract_satisfied', 'missing_handler'],
     description: 'Prompt-required WHEN OTHERS handling must exist.',
+  },
+  {
+    checkId: 'alignment.prompt-artifact',
+    category: 'artifact-alignment',
+    validator: VALIDATOR_NAMES.artifactAlignment,
+    item: 'Prompt Input Artifact',
+    ruleIds: ['missing_prompt_artifact', 'prompt_artifact_present'],
+    description: 'Prompt input must exist before artifact alignment can be validated.',
+  },
+  {
+    checkId: 'alignment.reference-artifact',
+    category: 'artifact-alignment',
+    validator: VALIDATOR_NAMES.artifactAlignment,
+    item: 'Reference Answer Artifact',
+    ruleIds: ['missing_reference_artifact', 'reference_artifact_present'],
+    description: 'Reference answer SQL must exist before artifact alignment can be validated.',
+  },
+  {
+    checkId: 'alignment.testcase-artifact',
+    category: 'artifact-alignment',
+    validator: VALIDATOR_NAMES.artifactAlignment,
+    item: 'Test Cases Artifact',
+    ruleIds: ['missing_testcase_artifact', 'testcase_artifact_present'],
+    description: 'Test cases must exist before artifact alignment can be validated.',
+  },
+  {
+    checkId: 'alignment.required-program',
+    category: 'artifact-alignment',
+    validator: VALIDATOR_NAMES.artifactAlignment,
+    itemPrefix: 'Required Program Implementation:',
+    dynamic: true,
+    ruleIds: ['program_implemented', 'missing_program_implementation'],
+    description: 'Every named prompt program/object must be implemented in the reference answer.',
+  },
+  {
+    checkId: 'alignment.testcase-program',
+    category: 'artifact-alignment',
+    validator: VALIDATOR_NAMES.artifactAlignment,
+    itemPrefix: 'Testcase Program Coverage:',
+    dynamic: true,
+    ruleIds: ['testcase_program_covered', 'missing_testcase_program_coverage'],
+    description: 'Named prompt programs must be referenced from testcase execution instructions.',
+  },
+  {
+    checkId: 'alignment.output-code',
+    category: 'artifact-alignment',
+    validator: VALIDATOR_NAMES.artifactAlignment,
+    itemPrefix: 'Output Literal Code Coverage:',
+    dynamic: true,
+    ruleIds: ['output_literal_in_code', 'missing_output_literal_in_code'],
+    description: 'Explicit literal outputs from the prompt must be evidenced in the program.',
+  },
+  {
+    checkId: 'alignment.output-testcase',
+    category: 'artifact-alignment',
+    validator: VALIDATOR_NAMES.artifactAlignment,
+    itemPrefix: 'Output Literal Test Coverage:',
+    dynamic: true,
+    ruleIds: ['output_literal_in_testcase', 'missing_output_literal_in_testcase'],
+    description: 'Explicit literal outputs from the prompt must appear in testcase execution results.',
+  },
+  {
+    checkId: 'alignment.exception-code',
+    category: 'artifact-alignment',
+    validator: VALIDATOR_NAMES.artifactAlignment,
+    itemPrefix: 'Exception Message Code Coverage:',
+    dynamic: true,
+    ruleIds: ['exception_message_in_code', 'missing_exception_message_in_code'],
+    description: 'Explicit prompt exception messages must be evidenced in program handlers.',
+  },
+  {
+    checkId: 'alignment.exception-testcase',
+    category: 'artifact-alignment',
+    validator: VALIDATOR_NAMES.artifactAlignment,
+    itemPrefix: 'Exception Message Test Coverage:',
+    dynamic: true,
+    ruleIds: ['exception_message_in_testcase', 'missing_exception_message_in_testcase'],
+    description: 'Explicit prompt exception messages must appear in testcase execution results.',
   },
   {
     checkId: 'plsql.metadata',
@@ -530,6 +609,7 @@ function inferCategory(validator) {
   if (validator === VALIDATOR_NAMES.promptStructure) return 'prompt-structure';
   if (validator === VALIDATOR_NAMES.plsqlProgram || validator === VALIDATOR_NAMES.complexityTableCount) return 'plsql-program';
   if (validator === VALIDATOR_NAMES.namingStandard) return 'naming-standard';
+  if (validator === VALIDATOR_NAMES.artifactAlignment) return 'artifact-alignment';
   return 'other';
 }
 

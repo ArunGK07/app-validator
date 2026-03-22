@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+﻿import { CommonModule } from '@angular/common';
 import { Component, DestroyRef, ElementRef, OnInit, ViewChild, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -10,6 +10,8 @@ import {
   ConversationRow,
   TaskFilters,
   ValidationChecklistEntry,
+  ValidationFileReport,
+  ValidationFileReportIndexEntry,
   TaskReport,
   TaskReportFile,
   TaskWorkflowAction,
@@ -17,6 +19,18 @@ import {
   ValidationMasterReport,
   ValidationRunSummary,
 } from './models';
+import {
+  buildFileGroups as buildReportFileGroups,
+  buildValidationStatusCache,
+  filterChecklistRows,
+  findFileValidationEntry,
+  getShortFileLabel as getReportFileShortLabel,
+  isLogFile as isReportLogFile,
+  isValidationFile as isReportValidationFile,
+  matchesCurrentFile as matchesSelectedFile,
+  readTurnNumber as readReportTurnNumber,
+  resolveReportFileName as resolveNamedReportFile,
+} from './report-page.helpers';
 
 interface FileGroup {
   key: string;
@@ -33,6 +47,17 @@ interface ValidationItem {
 interface ValidationSection {
   title: string;
   items: ValidationItem[];
+}
+
+interface HeaderMetaItem {
+  label: string;
+  value: string;
+}
+
+interface HeaderRequirementItem {
+  label: string;
+  value: string;
+  highlight: boolean;
 }
 
 interface ValidationFailureGroup {
@@ -104,17 +129,26 @@ export class ReportPageComponent implements OnInit {
 
   taskId = '';
   report: TaskReport | null = null;
+  headerMetaItems: HeaderMetaItem[] = [];
+  headerRequirementItems: HeaderRequirementItem[] = [];
+  headerRequirementSummary = '';
   selectedFileName = '';
   selectedFileByGroup: Record<string, string> = {};
   selectedFilePreference = '';
   fileGroups: FileGroup[] = [];
   activeGroupKey = 'all';
   fileContent: TaskReportFile | null = null;
+  activeFileView: 'content' | 'validation' | 'raw-log' = 'content';
+  selectedFileValidationEntry: ValidationFileReportIndexEntry | null = null;
+  selectedFileValidationReport: ValidationFileReport | null = null;
+  selectedFileRawLog: TaskReportFile | null = null;
   validationReport: ValidationMasterReport | null = null;
   showCurrentFileErrorsOnly = false;
   showFailuresOnly = false;
   loadingReport = false;
   loadingFile = false;
+  loadingFileValidation = false;
+  loadingFileRawLog = false;
   error = '';
   actionError = '';
   actionMessage = '';
@@ -146,11 +180,18 @@ export class ReportPageComponent implements OnInit {
       this.taskId = taskId;
       this.error = '';
       this.report = null;
+      this.headerMetaItems = [];
+      this.headerRequirementItems = [];
+      this.headerRequirementSummary = '';
       this.selectedFileByGroup = {};
       this.selectedFilePreference = '';
       this.fileGroups = [];
       this.activeGroupKey = 'all';
       this.fileContent = null;
+      this.activeFileView = 'content';
+      this.selectedFileValidationEntry = null;
+      this.selectedFileValidationReport = null;
+      this.selectedFileRawLog = null;
       this.editableContent = '';
       this.editingFile = false;
       this.pendingAutoSave = false;
@@ -161,6 +202,8 @@ export class ReportPageComponent implements OnInit {
       this.showCurrentFileErrorsOnly = false;
       this.showFailuresOnly = false;
       this.validationStatusCache = null;
+      this.loadingFileValidation = false;
+      this.loadingFileRawLog = false;
       this.selectedFileName = '';
       this.actionError = '';
       this.actionMessage = '';
@@ -172,6 +215,7 @@ export class ReportPageComponent implements OnInit {
         return;
       }
 
+      this.loadTaskSummary(taskId);
       this.loadReport(taskId);
     });
   }
@@ -193,6 +237,7 @@ export class ReportPageComponent implements OnInit {
     this.previewTargetLine = options?.targetLine ?? null;
     this.clearAutoSaveTimer();
     this.pendingAutoSave = false;
+    this.resetSelectedFileArtifacts();
 
     this.api
       .getTaskReportFile(this.taskId, name)
@@ -204,11 +249,13 @@ export class ReportPageComponent implements OnInit {
           this.editingFile = false;
           this.lastSavedAt = null;
           this.lastSaveError = '';
+          this.refreshSelectedFileArtifacts();
           this.schedulePreviewNavigation();
         },
         error: (error: unknown) => {
           this.error = this.asErrorMessage(error);
           this.fileContent = null;
+          this.resetSelectedFileArtifacts();
           this.editableContent = '';
           this.editingFile = false;
           this.lastSavedAt = null;
@@ -225,6 +272,17 @@ export class ReportPageComponent implements OnInit {
   getFileValidationState(fileName: string): 'fail' | 'success' | 'neutral' {
     this.ensureValidationStatusCache();
     return this.validationStatusCache?.fileStates.get(fileName) ?? 'neutral';
+  }
+
+  getFileValidationBadge(fileName: string): string {
+    const state = this.getFileValidationState(fileName);
+    if (state === 'fail') {
+      return 'Fail';
+    }
+    if (state === 'success') {
+      return 'Pass';
+    }
+    return 'Open';
   }
 
   getGroupValidationState(groupKey: string): 'fail' | 'success' | 'neutral' {
@@ -502,6 +560,95 @@ export class ReportPageComponent implements OnInit {
 
   get showStructuredLogView(): boolean {
     return Boolean(this.fileContent && this.isLogFile(this.fileContent.name));
+  }
+
+  get selectedFileValidationGroups(): ValidationChecklistGroup[] {
+    if (!this.selectedFileValidationReport?.checklist?.length) {
+      return [];
+    }
+
+    const rows = this.showFailuresOnly
+      ? this.selectedFileValidationReport.checklist.filter((row) => row.status === 'FAIL')
+      : this.selectedFileValidationReport.checklist;
+    const groups = new Map<string, ValidationChecklistGroup>();
+    for (const row of rows) {
+      const key = `${row.category}|${row.validator}`;
+      const title = `${this.toDisplayLabel(row.category)} - ${row.validator}`;
+      const existing = groups.get(key) ?? { key, title, rows: [] };
+      existing.rows.push(row);
+      groups.set(key, existing);
+    }
+
+    return [...groups.values()].map((group) => ({
+      ...group,
+      rows: [...group.rows].sort((left, right) => left.item.localeCompare(right.item, undefined, { sensitivity: 'base' })),
+    }));
+  }
+
+  get selectedFileFailureGroups(): ValidationFailureGroup[] {
+    if (!this.selectedFileValidationReport?.results?.length) {
+      return [];
+    }
+
+    const rows = this.selectedFileValidationReport.results.filter((entry) => entry.status === 'FAIL');
+    const groups = new Map<string, ValidationFailureGroup>();
+    for (const row of rows) {
+      const key = `${row.validator}|${row.turnId ?? 'task'}`;
+      const title = row.turnId === null ? `${row.validator} - Task` : `${row.validator} - Turn ${row.turnId}`;
+      const existing = groups.get(key) ?? { key, title, rows: [] };
+      existing.rows.push({
+        item: row.item,
+        present: row.present,
+        expected: row.expected,
+        update: row.update,
+        sourceFile: row.sourceFile,
+        line: row.line,
+      });
+      groups.set(key, existing);
+    }
+
+    return [...groups.values()];
+  }
+
+  get selectedFileRawLogLines(): string[] {
+    return this.selectedFileRawLog ? this.selectedFileRawLog.content.split(/\r?\n/) : [];
+  }
+
+  get selectedFileRawLogPreviewLines(): PreviewLogLine[] {
+    return this.selectedFileRawLogLines.map((text, index) => {
+      const parsed = this.parseLogSourceLine(text);
+      return {
+        lineNumber: index + 1,
+        text,
+        sourceFile: parsed?.sourceFile ?? null,
+        sourceLine: parsed?.line ?? null,
+      };
+    });
+  }
+
+  get fileValidationSummaryItems(): ValidationItem[] {
+    if (!this.selectedFileValidationEntry) {
+      return [];
+    }
+
+    return [
+      {
+        label: 'Checks',
+        value: `${this.selectedFileValidationEntry.summary.passed}/${this.selectedFileValidationEntry.summary.total}`,
+        tone: this.asTone(this.selectedFileValidationEntry.summary.failed === 0),
+      },
+      { label: 'Report', value: this.selectedFileValidationEntry.reportFile },
+      { label: 'Raw Log', value: this.selectedFileValidationEntry.logFile },
+    ];
+  }
+
+  get hasSelectedFileValidationContent(): boolean {
+    return this.fileValidationSummaryItems.length > 0 || this.selectedFileValidationGroups.length > 0 || this.selectedFileFailureGroups.length > 0;
+  }
+
+  selectFileView(view: 'content' | 'validation' | 'raw-log'): void {
+    this.activeFileView = view;
+    void this.ensureSelectedFileArtifactsLoaded();
   }
 
   enableEditMode(): void {
@@ -799,17 +946,13 @@ export class ReportPageComponent implements OnInit {
       return [];
     }
 
-    const rows = this.validationReport.checklist.filter((row) => {
-      if (this.showCurrentFileErrorsOnly && !this.matchesCurrentFile(row.sourceFile)) {
-        return false;
-      }
-
-      if (this.showCurrentFileErrorsOnly || this.showFailuresOnly) {
-        return row.status === 'FAIL';
-      }
-
-      return true;
-    });
+    const rows = filterChecklistRows(
+      this.validationReport.checklist,
+      this.report?.files ?? [],
+      this.selectedFileName,
+      this.showCurrentFileErrorsOnly,
+      this.showFailuresOnly,
+    );
 
     const groups = new Map<string, ValidationChecklistGroup>();
     for (const row of rows) {
@@ -1006,6 +1149,281 @@ export class ReportPageComponent implements OnInit {
       });
   }
 
+  private loadTaskSummary(taskId: string): void {
+    this.api
+      .getConversations(this.buildTaskLookupFilters(taskId))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (rows) => {
+          if (this.taskId !== taskId) {
+            return;
+          }
+
+          const row = rows.find((entry) => entry.taskId === taskId) ?? rows[0] ?? null;
+          this.headerMetaItems = this.buildHeaderMetaItems(row);
+          this.headerRequirementItems = this.buildHeaderRequirementItems(row);
+          this.headerRequirementSummary = this.buildHeaderRequirementSummary(row);
+        },
+        error: () => {
+          if (this.taskId !== taskId) {
+            return;
+          }
+
+          this.headerMetaItems = [];
+          this.headerRequirementItems = [];
+          this.headerRequirementSummary = '';
+        },
+      });
+  }
+
+  private buildHeaderMetaItems(row: ConversationRow | null): HeaderMetaItem[] {
+    if (!row) {
+      return [];
+    }
+
+    return [
+      { label: 'Schema', value: row.schemaName },
+      { label: 'Turns', value: row.turnCount },
+      { label: 'Complexity', value: row.complexity },
+      { label: 'Status', value: row.businessStatus },
+      { label: 'Owner', value: row.assignedUser },
+      { label: 'Batch', value: row.batch },
+    ].filter((item) => Boolean(item.value?.trim()));
+  }
+
+  private buildHeaderRequirementSummary(row: ConversationRow | null): string {
+    if (!row) {
+      return '';
+    }
+
+    if (this.buildHeaderRequirementItems(row).length) {
+      return '';
+    }
+
+    const fallback = this.normalizeInlineText(row.metadataPreview);
+    return fallback && !/^no metadata$/i.test(fallback) ? this.truncateInlineText(fallback, 220) : '';
+  }
+
+  private buildHeaderRequirementItems(row: ConversationRow | null): HeaderRequirementItem[] {
+    if (!row) {
+      return [];
+    }
+
+    const items = [
+      { label: 'Cursors', value: this.findMetadataValue(row.metadata, 'required_cursors') },
+      { label: 'Triggers', value: this.findMetadataValue(row.metadata, 'required_triggers') },
+      { label: 'Dynamic SQL', value: this.findMetadataValue(row.metadata, 'required_dynamic_sql') },
+      { label: 'Reasoning Types', value: this.findMetadataValue(row.metadata, 'target_reasoning_types') },
+      { label: 'Debugging Task', value: this.findMetadataValue(row.metadata, 'required_debugging_task') },
+      { label: 'Anonymous Block', value: this.findMetadataValue(row.metadata, 'required_anonymous_block') },
+      { label: 'Procs/Funcs/Pkgs', value: this.findMetadataValue(row.metadata, 'required_procs_funcs_pkgs') },
+      { label: 'Transaction Logic', value: this.findMetadataValue(row.metadata, 'required_transaction_logic') },
+      { label: 'Exception Handling', value: this.findMetadataValue(row.metadata, 'required_exception_handling') },
+      { label: 'Object Types/Modularization', value: this.findMetadataValue(row.metadata, 'required_object_types_or_modularization') },
+    ];
+
+    return items
+      .map(({ label, value }) => {
+        const formatted = this.formatRequirementSummaryValue(value);
+        return formatted === ''
+          ? null
+          : {
+              label,
+              value: formatted,
+              highlight: formatted.toLowerCase() === 'true',
+            };
+      })
+      .filter((entry): entry is HeaderRequirementItem => Boolean(entry))
+      .sort((left, right) => {
+        if (left.label === 'Reasoning Types') {
+          return -1;
+        }
+        if (right.label === 'Reasoning Types') {
+          return 1;
+        }
+        return 0;
+      });
+  }
+
+  private findMetadataValue(value: unknown, targetKey: string, depth = 0): unknown {
+    if (depth > 5 || value === null || value === undefined) {
+      return undefined;
+    }
+
+    const normalizedTarget = targetKey.replace(/[^a-z0-9]/gi, '').toLowerCase();
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        const found = this.findMetadataValue(entry, targetKey, depth + 1);
+        if (found !== undefined) {
+          return found;
+        }
+      }
+      return undefined;
+    }
+
+    if (typeof value !== 'object') {
+      return undefined;
+    }
+
+    for (const [entryKey, entryValue] of Object.entries(value as Record<string, unknown>)) {
+      const normalizedEntryKey = entryKey.replace(/[^a-z0-9]/gi, '').toLowerCase();
+      if (normalizedEntryKey === normalizedTarget) {
+        return entryValue;
+      }
+    }
+
+    for (const entryValue of Object.values(value as Record<string, unknown>)) {
+      const found = this.findMetadataValue(entryValue, targetKey, depth + 1);
+      if (found !== undefined) {
+        return found;
+      }
+    }
+
+    return undefined;
+  }
+
+  private formatRequirementSummaryValue(value: unknown): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? 'true' : 'false';
+    }
+
+    if (typeof value === 'number') {
+      return String(value);
+    }
+
+    if (Array.isArray(value)) {
+      return value
+        .map((entry) => this.normalizeInlineText(String(entry)))
+        .filter(Boolean)
+        .join(', ');
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return '';
+      }
+
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            return parsed.map((entry) => this.normalizeInlineText(String(entry))).filter(Boolean).join(', ');
+          }
+        } catch {
+          return this.normalizeInlineText(trimmed);
+        }
+      }
+
+      return this.normalizeInlineText(trimmed);
+    }
+
+    return this.normalizeInlineText(JSON.stringify(value));
+  }
+
+  private collectMetadataHighlights(
+    value: unknown,
+    path: string[] = [],
+    results: string[] = [],
+    depth = 0,
+  ): string[] {
+    if (results.length >= 4 || depth > 3 || value === null || value === undefined) {
+      return results;
+    }
+
+    const key = path[path.length - 1] ?? '';
+
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      const inlineValue = this.normalizeInlineText(String(value));
+      if (!inlineValue || !key || this.isHeaderMetadataKeyExcluded(key)) {
+        return results;
+      }
+
+      results.push(`${this.toHeaderMetadataLabel(key)}: ${this.truncateInlineText(inlineValue, 56)}`);
+      return results;
+    }
+
+    if (Array.isArray(value)) {
+      const primitiveValues = value
+        .filter((entry) => typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean')
+        .map((entry) => this.normalizeInlineText(String(entry)))
+        .filter(Boolean)
+        .slice(0, 3);
+
+      if (primitiveValues.length && key && !this.isHeaderMetadataKeyExcluded(key)) {
+        results.push(`${this.toHeaderMetadataLabel(key)}: ${this.truncateInlineText(primitiveValues.join(', '), 56)}`);
+        return results;
+      }
+
+      for (const entry of value.slice(0, 3)) {
+        this.collectMetadataHighlights(entry, path, results, depth + 1);
+        if (results.length >= 4) {
+          break;
+        }
+      }
+
+      return results;
+    }
+
+    if (typeof value !== 'object') {
+      return results;
+    }
+
+    for (const [entryKey, entryValue] of Object.entries(value as Record<string, unknown>)) {
+      this.collectMetadataHighlights(entryValue, [...path, entryKey], results, depth + 1);
+      if (results.length >= 4) {
+        break;
+      }
+    }
+
+    return results;
+  }
+
+  private isHeaderMetadataKeyExcluded(key: string): boolean {
+    const normalizedKey = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+    return [
+      'id',
+      'uuid',
+      'taskid',
+      'promptid',
+      'promptuuid',
+      'schema',
+      'schemaname',
+      'complexity',
+      'difficulty',
+      'turncount',
+      'turns',
+      'status',
+      'assigneduser',
+      'owner',
+      'batch',
+      'batchid',
+      'collablink',
+    ].includes(normalizedKey);
+  }
+
+  private toHeaderMetadataLabel(key: string): string {
+    return key
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^./, (value) => value.toUpperCase());
+  }
+
+  private normalizeInlineText(value: string): string {
+    return value.replace(/\s+/g, ' ').trim();
+  }
+
+  private truncateInlineText(value: string, maxLength: number): string {
+    return value.length > maxLength ? `${value.slice(0, maxLength - 1).trimEnd()}…` : value;
+  }
+
   private buildTaskLookupFilters(taskId: string): TaskFilters {
     return {
       userId: '',
@@ -1024,71 +1442,7 @@ export class ReportPageComponent implements OnInit {
   }
 
   private buildFileGroups(report: TaskReport): FileGroup[] {
-    const generalFiles: string[] = [];
-    const logFiles: string[] = [];
-    const validationFiles: string[] = [];
-    const turnGroups = new Map<number, string[]>();
-
-    for (const file of report.files) {
-      if (this.isLogFile(file.name)) {
-        logFiles.push(file.name);
-        continue;
-      }
-
-      if (this.isValidationFile(file.name)) {
-        validationFiles.push(file.name);
-        continue;
-      }
-
-      const turn = this.readTurnNumber(file.name);
-
-      if (turn === null) {
-        generalFiles.push(file.name);
-        continue;
-      }
-
-      const existing = turnGroups.get(turn) ?? [];
-      existing.push(file.name);
-      turnGroups.set(turn, existing);
-    }
-
-    const groups: FileGroup[] = [];
-
-    for (const turn of [...turnGroups.keys()].sort((left, right) => left - right)) {
-      const files = turnGroups.get(turn) ?? [];
-
-      groups.push({
-        key: `turn-${turn}`,
-        label: `Turn ${turn} (${files.length})`,
-        files,
-      });
-    }
-
-    if (generalFiles.length) {
-      groups.push({
-        key: 'general',
-        label: `General (${generalFiles.length})`,
-        files: generalFiles,
-      });
-    }
-
-    if (logFiles.length) {
-      groups.push({
-        key: 'logs',
-        label: `Logs (${logFiles.length})`,
-        files: logFiles,
-      });
-    }
-
-    if (validationFiles.length) {
-      groups.push({
-        key: 'validation',
-        label: `Validation (${validationFiles.length})`,
-        files: validationFiles,
-      });
-    }
-
-    return groups;
+    return buildReportFileGroups(report);
   }
 
   private resolvePreferredFile(files: TaskReport['files']): string | null {
@@ -1206,17 +1560,15 @@ export class ReportPageComponent implements OnInit {
   }
 
   private readTurnNumber(fileName: string): number | null {
-    const match = fileName.replace(/\\/g, '/').match(/(?:^|\/|_)turn(\d+)(?:_|\.|\/|$)/i);
-
-    return match ? Number(match[1]) : null;
+    return readReportTurnNumber(fileName);
   }
 
   private isLogFile(fileName: string): boolean {
-    return /^_logs[\\/]/i.test(fileName);
+    return isReportLogFile(fileName);
   }
 
   private isValidationFile(fileName: string): boolean {
-    return /^_validation[\\/]/i.test(fileName);
+    return isReportValidationFile(fileName);
   }
 
   private async loadPersistedValidationReport(report: TaskReport): Promise<void> {
@@ -1231,9 +1583,11 @@ export class ReportPageComponent implements OnInit {
       const file = await firstValueFrom(this.api.getTaskReportFile(this.taskId, masterReport.name));
       this.validationReport = JSON.parse(file.content) as ValidationMasterReport;
       this.validationStatusCache = null;
+      this.refreshSelectedFileArtifacts();
     } catch {
       this.validationReport = null;
       this.validationStatusCache = null;
+      this.resetSelectedFileArtifacts();
     }
   }
 
@@ -1246,9 +1600,68 @@ export class ReportPageComponent implements OnInit {
       const file = await firstValueFrom(this.api.getTaskReportFile(this.taskId, result.reports.master));
       this.validationReport = JSON.parse(file.content) as ValidationMasterReport;
       this.validationStatusCache = null;
+      this.refreshSelectedFileArtifacts();
     } catch {
       this.validationReport = null;
       this.validationStatusCache = null;
+      this.resetSelectedFileArtifacts();
+    }
+  }
+
+  private resetSelectedFileArtifacts(): void {
+    this.selectedFileValidationEntry = null;
+    this.selectedFileValidationReport = null;
+    this.selectedFileRawLog = null;
+    this.loadingFileValidation = false;
+    this.loadingFileRawLog = false;
+  }
+
+  private refreshSelectedFileArtifacts(): void {
+    if (!this.report || !this.selectedFileName) {
+      this.resetSelectedFileArtifacts();
+      return;
+    }
+
+    this.selectedFileValidationEntry = findFileValidationEntry(this.validationReport, this.report.files, this.selectedFileName);
+    this.selectedFileValidationReport = null;
+    this.selectedFileRawLog = null;
+    this.loadingFileValidation = false;
+    this.loadingFileRawLog = false;
+    void this.ensureSelectedFileArtifactsLoaded();
+  }
+
+  private async ensureSelectedFileArtifactsLoaded(): Promise<void> {
+    if (!this.taskId || !this.selectedFileValidationEntry) {
+      return;
+    }
+
+    const loadTasks: Promise<void>[] = [];
+
+    if (!this.selectedFileValidationReport && !this.loadingFileValidation) {
+      this.loadingFileValidation = true;
+      loadTasks.push((async () => {
+        try {
+          const file = await firstValueFrom(this.api.getTaskReportFile(this.taskId, this.selectedFileValidationEntry!.reportFile));
+          this.selectedFileValidationReport = JSON.parse(file.content) as ValidationFileReport;
+        } finally {
+          this.loadingFileValidation = false;
+        }
+      })());
+    }
+
+    if (!this.selectedFileRawLog && !this.loadingFileRawLog) {
+      this.loadingFileRawLog = true;
+      loadTasks.push((async () => {
+        try {
+          this.selectedFileRawLog = await firstValueFrom(this.api.getTaskReportFile(this.taskId, this.selectedFileValidationEntry!.logFile));
+        } finally {
+          this.loadingFileRawLog = false;
+        }
+      })());
+    }
+
+    if (loadTasks.length) {
+      await Promise.allSettled(loadTasks);
     }
   }
 
@@ -1257,54 +1670,7 @@ export class ReportPageComponent implements OnInit {
       return;
     }
 
-    const fileStates = new Map<string, 'fail' | 'success'>();
-    const turnStates = new Map<string, 'fail' | 'success'>();
-    const report = this.validationReport;
-
-    if (report) {
-      const applyState = (
-        map: Map<string, 'fail' | 'success'>,
-        key: string | null | undefined,
-        state: 'fail' | 'success',
-      ): void => {
-        if (!key) {
-          return;
-        }
-
-        const current = map.get(key);
-        if (current === 'fail') {
-          return;
-        }
-
-        if (state === 'fail' || !current) {
-          map.set(key, state);
-        }
-      };
-
-      for (const row of report.results) {
-        const state: 'fail' | 'success' = row.status === 'FAIL' ? 'fail' : 'success';
-        const resolvedFile = row.sourceFile ? this.resolveReportFileName(row.sourceFile) : null;
-        applyState(fileStates, resolvedFile, state);
-        applyState(turnStates, row.turnId === null ? null : `turn-${row.turnId}`, state);
-      }
-
-      for (const row of report.checklist) {
-        if (row.status === 'NOT_RUN') {
-          continue;
-        }
-
-        const state: 'fail' | 'success' = row.status === 'FAIL' ? 'fail' : 'success';
-        const resolvedFile = row.sourceFile ? this.resolveReportFileName(row.sourceFile) : null;
-        applyState(fileStates, resolvedFile, state);
-        applyState(turnStates, row.turnId === null ? null : `turn-${row.turnId}`, state);
-      }
-    }
-
-    this.validationStatusCache = {
-      report,
-      fileStates,
-      turnStates,
-    };
+    this.validationStatusCache = buildValidationStatusCache(this.validationReport, this.report?.files ?? []);
   }
 
   private schedulePreviewNavigation(): void {
@@ -1530,35 +1896,11 @@ export class ReportPageComponent implements OnInit {
   }
 
   private resolveReportFileName(sourceFile: string): string | null {
-    if (!this.report) {
-      return null;
-    }
-
-    const normalizedSource = sourceFile.replace(/\\/g, '/').toLowerCase();
-    const exactMatch = this.report.files.find((file) => file.name.replace(/\\/g, '/').toLowerCase() === normalizedSource);
-    if (exactMatch) {
-      return exactMatch.name;
-    }
-
-    const sourceBaseName = normalizedSource.split('/').pop();
-    if (!sourceBaseName) {
-      return null;
-    }
-
-    const baseMatch = this.report.files.find((file) => {
-      const normalizedFile = file.name.replace(/\\/g, '/').toLowerCase();
-      return normalizedFile.split('/').pop() === sourceBaseName;
-    });
-
-    return baseMatch?.name ?? null;
+    return this.report ? resolveNamedReportFile(this.report.files, sourceFile) : null;
   }
 
   private matchesCurrentFile(sourceFile: string | null): boolean {
-    if (!sourceFile || !this.selectedFileName) {
-      return false;
-    }
-
-    return this.resolveReportFileName(sourceFile) === this.selectedFileName;
+    return this.report ? matchesSelectedFile(this.selectedFileName, this.report.files, sourceFile) : false;
   }
 
   private syncReportFileMetadata(file: TaskReportFile): void {
@@ -1682,4 +2024,33 @@ export class ReportPageComponent implements OnInit {
       .join(' ');
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

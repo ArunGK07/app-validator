@@ -1,4 +1,5 @@
-﻿import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { formatTaskArtifactName } from '../workspace-config.mjs';
@@ -9,6 +10,7 @@ export const VALIDATOR_NAMES = {
   plsqlProgram: 'PLSQLProgramValidator',
   complexityTableCount: 'ComplexityTableCountValidator',
   namingStandard: 'NamingStandardValidator',
+  artifactAlignment: 'ArtifactAlignmentValidator',
   master: 'MasterValidator',
 };
 
@@ -123,6 +125,8 @@ export function buildReportNames(taskId) {
     promptStructure: `promptstructure_task_${taskId}.json`,
     plsqlCombined: `plsqlcombined_task_${taskId}.json`,
     namingStandard: `namingstandard_task_${taskId}.json`,
+    artifactAlignment: `artifactalignment_task_${taskId}.json`,
+    fileIndex: `files/index_task_${taskId}.json`,
   };
 }
 
@@ -151,6 +155,7 @@ export async function writeValidationReport(reportPath, validatorName, results, 
 }
 
 export async function writeMasterValidationReport(reportPath, taskId, validatorReports) {
+  const generatedAt = new Date().toISOString();
   const enrichedValidatorReports = validatorReports.map((entry) => ({
     ...entry,
     results: entry.results.map((result) => enrichValidationResult(result)),
@@ -160,10 +165,11 @@ export async function writeMasterValidationReport(reportPath, taskId, validatorR
   const validatorsPassed = enrichedValidatorReports.filter((entry) => entry.summary.failed === 0).length;
   const validatorsFailed = enrichedValidatorReports.length - validatorsPassed;
   const checklist = buildValidationChecklist(enrichedValidatorReports);
+  const fileArtifacts = await writeFileValidationArtifacts(dirname(reportPath), taskId, allResults, checklist, generatedAt);
 
   const payload = {
     validator: VALIDATOR_NAMES.master,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     taskId: String(taskId),
     summary: {
       validatorsRun: validatorReports.length,
@@ -186,11 +192,15 @@ export async function writeMasterValidationReport(reportPath, taskId, validatorR
     checklistCatalog: VALIDATION_CHECKLIST_CATALOG,
     checklist,
     results: allResults,
+    fileReports: fileArtifacts.files,
   };
 
   await mkdir(dirname(reportPath), { recursive: true });
   await writeFile(reportPath, JSON.stringify(payload, null, 2), 'utf8');
-  return payload;
+  return {
+    ...payload,
+    fileIndex: fileArtifacts.indexFile,
+  };
 }
 
 export function metadataBool(value, defaultValue = false) {
@@ -338,6 +348,9 @@ export function formatLogText(masterReport, validatorReports) {
     for (const result of report.results.filter((entry) => entry.status === 'FAIL')) {
       const turnLabel = result.turnId === null ? 'task' : `turn ${result.turnId}`;
       lines.push(`  - ${turnLabel} | ${result.item}`);
+      if (result.sourceFile) {
+        lines.push(`    source: ${result.sourceFile}${result.line ? ` line ${result.line}` : ''}`);
+      }
       if (result.expected) {
         lines.push(`    expected: ${result.expected}`);
       }
@@ -355,3 +368,175 @@ export function formatLogText(masterReport, validatorReports) {
   return lines.join('\n');
 }
 
+async function writeFileValidationArtifacts(validationDir, taskId, results, checklist, generatedAt) {
+  const filesDir = join(validationDir, 'files');
+  await mkdir(filesDir, { recursive: true });
+
+  const resultsByFile = new Map();
+  const checklistByFile = new Map();
+
+  for (const row of results) {
+    if (!row.sourceFile) {
+      continue;
+    }
+
+    const existing = resultsByFile.get(row.sourceFile) ?? [];
+    existing.push(row);
+    resultsByFile.set(row.sourceFile, existing);
+  }
+
+  for (const row of checklist) {
+    if (!row.sourceFile) {
+      continue;
+    }
+
+    const existing = checklistByFile.get(row.sourceFile) ?? [];
+    existing.push(row);
+    checklistByFile.set(row.sourceFile, existing);
+  }
+
+  const sourceFiles = [...new Set([...resultsByFile.keys(), ...checklistByFile.keys()])].sort((left, right) =>
+    left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }),
+  );
+  const files = [];
+
+  for (const sourceFile of sourceFiles) {
+    const fileResults = [...(resultsByFile.get(sourceFile) ?? [])].sort(compareValidationRows);
+    const fileChecklist = [...(checklistByFile.get(sourceFile) ?? [])].sort(compareChecklistRows);
+    const summary = summarizeResults(fileResults);
+    const validators = [...new Set(fileResults.map((row) => row.validator))].map((validator) => {
+      const validatorResults = fileResults.filter((row) => row.validator === validator);
+      const validatorSummary = summarizeResults(validatorResults);
+      return {
+        validator,
+        summary: validatorSummary,
+        success: validatorSummary.failed === 0,
+      };
+    });
+    const turnIds = [...new Set(fileResults.map((row) => row.turnId).filter((value) => Number.isInteger(value)))];
+    const baseName = buildFileValidationBaseName(sourceFile);
+    const reportFile = `_validation/files/${baseName}.json`;
+    const logFile = `_validation/files/${baseName}.log`;
+    const reportPayload = {
+      validator: 'FileValidationReport',
+      generatedAt,
+      taskId: String(taskId),
+      sourceFile,
+      turnId: turnIds.length === 1 ? turnIds[0] : null,
+      summary,
+      validators,
+      checklist: fileChecklist,
+      results: fileResults,
+    };
+
+    await writeFile(join(filesDir, `${baseName}.json`), JSON.stringify(reportPayload, null, 2), 'utf8');
+    await writeFile(join(filesDir, `${baseName}.log`), formatFileLogText(reportPayload), 'utf8');
+
+    files.push({
+      sourceFile,
+      turnId: reportPayload.turnId,
+      reportFile,
+      logFile,
+      summary,
+      validators,
+    });
+  }
+
+  const indexFile = `_validation/files/index_task_${taskId}.json`;
+  const indexPayload = {
+    validator: 'FileValidationIndex',
+    generatedAt,
+    taskId: String(taskId),
+    files,
+  };
+  await writeFile(join(filesDir, `index_task_${taskId}.json`), JSON.stringify(indexPayload, null, 2), 'utf8');
+
+  return {
+    indexFile,
+    files,
+  };
+}
+
+function compareValidationRows(left, right) {
+  return compareMaybeNumber(left.line, right.line)
+    || compareStrings(left.validator, right.validator)
+    || compareStrings(left.item, right.item)
+    || compareStrings(left.ruleId, right.ruleId);
+}
+
+function compareChecklistRows(left, right) {
+  return compareMaybeNumber(left.line, right.line)
+    || compareStrings(left.validator, right.validator)
+    || compareStrings(left.item, right.item)
+    || compareStrings(left.ruleId ?? '', right.ruleId ?? '');
+}
+
+function compareMaybeNumber(left, right) {
+  const normalizedLeft = Number.isInteger(left) ? left : Number.MAX_SAFE_INTEGER;
+  const normalizedRight = Number.isInteger(right) ? right : Number.MAX_SAFE_INTEGER;
+  return normalizedLeft - normalizedRight;
+}
+
+function compareStrings(left, right) {
+  return String(left ?? '').localeCompare(String(right ?? ''), undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function buildFileValidationBaseName(sourceFile) {
+  const normalized = String(sourceFile ?? '').replace(/\\/g, '/');
+  const sourceBaseName = normalized.split('/').pop() ?? normalized;
+  const slug = sourceBaseName
+    .replace(/\.[^.]+$/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'file';
+  const hash = createHash('sha1').update(normalized).digest('hex').slice(0, 8);
+  return `${slug}__${hash}`;
+}
+
+function formatFileLogText(report) {
+  const lines = [];
+
+  lines.push(`Validation file report generated at ${report.generatedAt}`);
+  lines.push(`Task: ${report.taskId}`);
+  lines.push(`Source: ${report.sourceFile}`);
+  if (report.turnId !== null) {
+    lines.push(`Turn: ${report.turnId}`);
+  }
+  lines.push(`Checks: ${report.summary.total} total, ${report.summary.passed} passed, ${report.summary.failed} failed`);
+  lines.push('');
+
+  const failed = report.results.filter((row) => row.status === 'FAIL');
+  const passed = report.results.filter((row) => row.status === 'PASS');
+
+  if (failed.length) {
+    lines.push('Failures:');
+    appendFileLogRows(lines, failed);
+    lines.push('');
+  }
+
+  if (passed.length) {
+    lines.push('Passes:');
+    appendFileLogRows(lines, passed);
+  }
+
+  return lines.join('\n');
+}
+
+function appendFileLogRows(lines, rows) {
+  for (const row of rows) {
+    lines.push(`- ${row.validator} | ${row.item} | ${row.status}`);
+    if (row.sourceFile) {
+      lines.push(`  source: ${row.sourceFile}${row.line ? ` line ${row.line}` : ''}`);
+    }
+    if (row.expected) {
+      lines.push(`  expected: ${row.expected}`);
+    }
+    if (row.present) {
+      lines.push(`  present: ${row.present}`);
+    }
+    if (row.update) {
+      lines.push(`  update: ${row.update}`);
+    }
+  }
+}
