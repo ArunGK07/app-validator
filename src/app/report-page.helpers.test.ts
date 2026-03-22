@@ -7,6 +7,7 @@ import {
   filterChecklistRows,
   findFileValidationEntry,
   matchesCurrentFile,
+  resolveRecalculationFilesForIssue,
   resolveReportFileName,
 } from './report-page.helpers';
 import { TaskReport, ValidationMasterReport } from './models';
@@ -224,4 +225,33 @@ test('filterChecklistRows supports current-file filtering and failure-only mode'
   const allFailures = filterChecklistRows(validationReport.checklist, report.files, '', false, true);
   assert.equal(allFailures.length, 1);
   assert.equal(allFailures[0]?.status, 'FAIL');
+});
+
+
+test('resolveRecalculationFilesForIssue returns all turn files for complexity table count mismatches', () => {
+  const files = resolveRecalculationFilesForIssue(report, {
+    validator: 'ComplexityTableCountValidator',
+    item: 'Complexity Table Count',
+    ruleId: 'count_mismatch',
+    turnId: 1,
+    sourceFile: '9418_turn1_4referenceAnswer.sql',
+  });
+
+  assert.deepEqual(files, [
+    '9418_turn1_1user.txt',
+    '9418_turn1_4referenceAnswer.sql',
+    '9418_turn1_5testCases.sql',
+  ]);
+});
+
+test('resolveRecalculationFilesForIssue ignores unrelated validation failures', () => {
+  const files = resolveRecalculationFilesForIssue(report, {
+    validator: 'ArtifactAlignmentValidator',
+    item: 'Output Literal Test Coverage: ABCD',
+    ruleId: 'missing_output_literal_in_testcase',
+    turnId: 1,
+    sourceFile: '9418_turn1_5testCases.sql',
+  });
+
+  assert.deepEqual(files, []);
 });

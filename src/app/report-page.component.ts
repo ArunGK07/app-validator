@@ -29,6 +29,7 @@ import {
   isValidationFile as isReportValidationFile,
   matchesCurrentFile as matchesSelectedFile,
   readTurnNumber as readReportTurnNumber,
+  resolveRecalculationFilesForIssue,
   resolveReportFileName as resolveNamedReportFile,
 } from './report-page.helpers';
 
@@ -64,7 +65,10 @@ interface ValidationFailureGroup {
   key: string;
   title: string;
   rows: Array<{
+    validator: string;
     item: string;
+    ruleId: string;
+    turnId: number | null;
     present: string | null;
     expected: string | null;
     update: string | null;
@@ -89,6 +93,7 @@ interface PreviewLogLine {
 interface TopValidationAlert {
   validator: string;
   item: string;
+  ruleId: string;
   turnId: number | null;
   description: string | null;
   present: string | null;
@@ -597,7 +602,10 @@ export class ReportPageComponent implements OnInit {
       const title = row.turnId === null ? `${row.validator} - Task` : `${row.validator} - Turn ${row.turnId}`;
       const existing = groups.get(key) ?? { key, title, rows: [] };
       existing.rows.push({
+        validator: row.validator,
         item: row.item,
+        ruleId: row.ruleId,
+        turnId: row.turnId,
         present: row.present,
         expected: row.expected,
         update: row.update,
@@ -928,7 +936,10 @@ export class ReportPageComponent implements OnInit {
       const title = row.turnId === null ? `${row.validator} - Task` : `${row.validator} - Turn ${row.turnId}`;
       const existing = groups.get(key) ?? { key, title, rows: [] };
       existing.rows.push({
+        validator: row.validator,
         item: row.item,
+        ruleId: row.ruleId,
+        turnId: row.turnId,
         present: row.present,
         expected: row.expected,
         update: row.update,
@@ -980,6 +991,7 @@ export class ReportPageComponent implements OnInit {
       .map((entry) => ({
         validator: entry.validator,
         item: entry.item,
+        ruleId: entry.ruleId,
         turnId: entry.turnId,
         description: null,
         present: entry.present,
@@ -1057,7 +1069,29 @@ export class ReportPageComponent implements OnInit {
       `Found: ${alert.present || 'Validation failed.'}`,
       `Status: FAIL`,
       `File Name: ${alert.sourceFile ? this.formatSourceLocation(alert.sourceFile, alert.line) : 'N/A'}`,
+      ...this.getRecalculationFileLines(alert),
     ].join('\n');
+  }
+
+  getRecalculationFilesText(issue: {
+    validator?: string | null;
+    item?: string | null;
+    ruleId?: string | null;
+    turnId?: number | null;
+    sourceFile?: string | null;
+  }): string {
+    return resolveRecalculationFilesForIssue(this.report, issue).join(', ');
+  }
+
+  private getRecalculationFileLines(issue: {
+    validator?: string | null;
+    item?: string | null;
+    ruleId?: string | null;
+    turnId?: number | null;
+    sourceFile?: string | null;
+  }): string[] {
+    const files = resolveRecalculationFilesForIssue(this.report, issue);
+    return files.length ? ['Files To Recalculate:', ...files.map((file) => `- ${file}`)] : [];
   }
 
   describeChecklistTest(row: ValidationChecklistEntry): string {
@@ -1096,6 +1130,7 @@ export class ReportPageComponent implements OnInit {
       `Status: ${row.status}`,
       `File Name: ${this.describeChecklistSource(row)}`,
       row.update ? `Fix: ${row.update}` : null,
+      ...this.getRecalculationFileLines(row),
     ]
       .filter(Boolean)
       .join('\n');
@@ -1109,6 +1144,7 @@ export class ReportPageComponent implements OnInit {
       'Status: FAIL',
       `File Name: ${row.sourceFile ? this.formatSourceLocation(row.sourceFile, row.line) : 'N/A'}`,
       row.update ? `Fix: ${row.update}` : null,
+      ...this.getRecalculationFileLines(row),
     ]
       .filter(Boolean)
       .join('\n');
@@ -1181,8 +1217,14 @@ export class ReportPageComponent implements OnInit {
       return [];
     }
 
+    const dataset = this.formatRequirementSummaryValue(this.findMetadataValue(row.metadata, 'dataset'));
+    const database = this.formatRequirementSummaryValue(
+      this.findMetadataValue(row.metadata, 'database') ?? row.schemaName,
+    );
+
     return [
-      { label: 'Schema', value: row.schemaName },
+      { label: 'Dataset', value: dataset },
+      { label: 'Database', value: database },
       { label: 'Turns', value: row.turnCount },
       { label: 'Complexity', value: row.complexity },
       { label: 'Status', value: row.businessStatus },
@@ -1225,12 +1267,13 @@ export class ReportPageComponent implements OnInit {
     return items
       .map(({ label, value }) => {
         const formatted = this.formatRequirementSummaryValue(value);
-        return formatted === ''
+        const normalized = formatted.toLowerCase();
+        return formatted === '' || normalized === 'false'
           ? null
           : {
               label,
               value: formatted,
-              highlight: formatted.toLowerCase() === 'true',
+              highlight: normalized === 'true',
             };
       })
       .filter((entry): entry is HeaderRequirementItem => Boolean(entry))
@@ -1241,6 +1284,13 @@ export class ReportPageComponent implements OnInit {
         if (right.label === 'Reasoning Types') {
           return 1;
         }
+
+        const leftRank = left.highlight ? 0 : 1;
+        const rightRank = right.highlight ? 0 : 1;
+        if (leftRank !== rightRank) {
+          return leftRank - rightRank;
+        }
+
         return 0;
       });
   }
@@ -2024,6 +2074,9 @@ export class ReportPageComponent implements OnInit {
       .join(' ');
   }
 }
+
+
+
 
 
 

@@ -6,15 +6,8 @@
         <p *ngIf="report?.folderPath" class="eyebrow">{{ report?.folderPath }}</p>
       </div>
 
-      <div *ngIf="taskId && !loadingReport && (headerMetaItems.length || headerRequirementItems.length || headerRequirementSummary)" class="report-header__summary">
+      <div *ngIf="taskId && !loadingReport && (headerRequirementItems.length || headerRequirementSummary)" class="report-header__summary">
         <div class="task-summary">
-          <div *ngIf="headerMetaItems.length" class="task-summary__chips">
-            <span *ngFor="let item of headerMetaItems" class="task-summary__chip">
-              <span class="task-summary__label">{{ item.label }}</span>
-              <span class="task-summary__value">{{ item.value }}</span>
-            </span>
-          </div>
-
           <div *ngIf="headerRequirementItems.length || headerRequirementSummary" class="task-summary__requirements">
             <ng-container *ngIf="headerRequirementItems.length; else requirementSummaryFallback">
               <div class="task-summary__chips task-summary__chips--requirements">
@@ -29,6 +22,13 @@
             </ng-template>
           </div>
         </div>
+      </div>
+
+      <div *ngIf="taskId && !loadingReport && headerMetaItems.length" class="report-header__meta task-summary__chips task-summary__chips--meta task-summary__chips--meta-left">
+        <span *ngFor="let item of headerMetaItems" class="task-summary__chip">
+          <span class="task-summary__label">{{ item.label }}</span>
+          <span class="task-summary__value">{{ item.value }}</span>
+        </span>
       </div>
     </div>
 
@@ -281,6 +281,7 @@
                           <p class="validation-summary-note">Found: {{ describeChecklistFinding(row) }}</p>
                           <p class="validation-summary-note">File Name: {{ describeChecklistSource(row) }}</p>
                           <p *ngIf="row.update" class="validation-summary-note">Fix: {{ row.update }}</p>
+                          <p *ngIf="getRecalculationFilesText(row) as recalculationFiles" class="validation-summary-note">Recalculate With: {{ recalculationFiles }}</p>
                           <button *ngIf="row.sourceFile" type="button" class="validation-summary-link" (click)="jumpToValidationSource(row.sourceFile, row.line)">
                             {{ formatSourceLocation(row.sourceFile, row.line) }}
                           </button>
@@ -314,6 +315,7 @@
                           <p class="validation-summary-note">Found: {{ row.present || row.expected || 'Failed' }}</p>
                           <p class="validation-summary-note">File Name: {{ row.sourceFile ? formatSourceLocation(row.sourceFile, row.line) : 'N/A' }}</p>
                           <p *ngIf="row.update" class="validation-summary-note">Fix: {{ row.update }}</p>
+                          <p *ngIf="getRecalculationFilesText(row) as recalculationFiles" class="validation-summary-note">Recalculate With: {{ recalculationFiles }}</p>
                         </div>
                       </div>
                     </div>
@@ -419,6 +421,7 @@
                     <p class="validation-summary-note">Expected: {{ alert.expected || 'This validation check should pass.' }}</p>
                     <p class="validation-summary-note">Found: {{ alert.present || 'Validation failed.' }}</p>
                     <p *ngIf="alert.sourceFile" class="validation-summary-note">{{ formatSourceLocation(alert.sourceFile, alert.line) }}</p>
+                    <p *ngIf="getRecalculationFilesText(alert) as recalculationFiles" class="validation-summary-note">Recalculate With: {{ recalculationFiles }}</p>
                   </div>
                 </div>
               </div>
@@ -485,6 +488,7 @@
                     <p class="validation-summary-note">Status: {{ row.status }}</p>
                     <p class="validation-summary-note">File Name: {{ describeChecklistSource(row) }}</p>
                     <p *ngIf="row.update" class="validation-summary-note">Fix: {{ row.update }}</p>
+                    <p *ngIf="getRecalculationFilesText(row) as recalculationFiles" class="validation-summary-note">Recalculate With: {{ recalculationFiles }}</p>
                     <button *ngIf="row.sourceFile" type="button" class="validation-summary-link" (click)="jumpToValidationSource(row.sourceFile, row.line)">
                       {{ formatSourceLocation(row.sourceFile, row.line) }}
                     </button>
@@ -519,6 +523,7 @@
                     <p class="validation-summary-note">Status: FAIL</p>
                     <p class="validation-summary-note">File Name: {{ row.sourceFile ? formatSourceLocation(row.sourceFile, row.line) : 'N/A' }}</p>
                     <p *ngIf="row.update" class="validation-summary-note">Fix: {{ row.update }}</p>
+                    <p *ngIf="getRecalculationFilesText(row) as recalculationFiles" class="validation-summary-note">Recalculate With: {{ recalculationFiles }}</p>
                   </div>
                 </div>
               </div>
@@ -536,6 +541,10 @@
     </div>
   </div>
 </section>
+
+
+
+
 
 
 

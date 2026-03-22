@@ -12,6 +12,14 @@ export interface FileGroup {
   files: string[];
 }
 
+export interface RecalculationIssue {
+  validator?: string | null;
+  item?: string | null;
+  ruleId?: string | null;
+  turnId?: number | null;
+  sourceFile?: string | null;
+}
+
 export function getShortFileLabel(taskId: string, name: string): string {
   const normalizedName = name.replace(/\\/g, '/');
   const baseName = normalizedName.split('/').pop() ?? normalizedName;
@@ -217,6 +225,31 @@ export function filterChecklistRows(
 
     return true;
   });
+}
+
+export function resolveRecalculationFilesForIssue(report: TaskReport | null, issue: RecalculationIssue): string[] {
+  if (!report || !shouldIncludeAllTurnFiles(issue)) {
+    return [];
+  }
+
+  const groups = buildFileGroups(report);
+
+  if (Number.isInteger(issue.turnId)) {
+    return groups.find((group) => group.key === `turn-${issue.turnId}`)?.files ?? [];
+  }
+
+  const resolvedFile = issue.sourceFile ? resolveReportFileName(report.files, issue.sourceFile) : null;
+  if (resolvedFile) {
+    return groups.find((group) => group.key.startsWith('turn-') && group.files.includes(resolvedFile))?.files ?? [];
+  }
+
+  return [];
+}
+
+function shouldIncludeAllTurnFiles(issue: RecalculationIssue): boolean {
+  return issue.validator === 'ComplexityTableCountValidator'
+    && issue.item === 'Complexity Table Count'
+    && issue.ruleId === 'count_mismatch';
 }
 
 function escapeForRegex(value: string): string {
