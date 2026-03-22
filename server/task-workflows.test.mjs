@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+﻿import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -143,7 +143,6 @@ test('runTaskWorkflowAction(validate) writes native validation reports and struc
         taskOutputDir,
         trainerProjectDir: 'D:\\Turing\\Projects\\workspace\\llm-trainer-project',
         trainerValidationReportsDir: join(root, 'validation-reports'),
-        pythonExecutable: 'python',
       },
       {
         validationDependencies: {
@@ -196,7 +195,6 @@ test('runTaskWorkflowAction(validate) clears existing log files before launching
         taskOutputDir,
         trainerProjectDir: 'D:\\Turing\\Projects\\workspace\\llm-trainer-project',
         trainerValidationReportsDir: join(root, 'validation-reports'),
-        pythonExecutable: 'python',
       },
       {
         validationDependencies: {
@@ -320,3 +318,6 @@ test('runTaskWorkflowAction(publish) uses the native GraphQL publisher', async (
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+

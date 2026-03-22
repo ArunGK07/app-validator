@@ -637,11 +637,11 @@ export async function runPromptStructureValidator(taskId, taskDir, metadata) {
     const firstSection = Object.values(index).length ? Math.min(...Object.values(index)) : lines.length;
     const preambleLines = lines.slice(0, firstSection).map((line) => line.trim()).filter(Boolean);
     results.push(
-      preambleLines.length > 2
+      preambleLines.length > 3
         ? createFail(validatorName, taskId, turnNumber, 'Prompt Preamble', 'unexpected_preamble', {
-            expected: 'at most 2 lines of business summary may appear immediately before `Requirements:`',
+            expected: 'at most 3 lines of business summary may appear immediately before `Requirements:`',
             present: `found ${preambleLines.length} non-empty line(s) before \`Requirements:\` in ${promptArtifact.fileName}`,
-            update: 'keep only an optional 2-line business summary before `Requirements:`',
+            update: 'keep the optional business summary to 3 non-empty lines or fewer before `Requirements:`',
             sourceFile: promptArtifact.fileName,
           })
         : createPass(validatorName, taskId, turnNumber, 'Prompt Preamble', 'preamble_allowed', promptArtifact.fileName),

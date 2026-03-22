@@ -52,4 +52,58 @@ test('runNamingStandardValidator supports Node oracledb-style connections with e
   }
 });
 
+test('runNamingStandardValidator compiles anonymous DECLARE blocks via a synthetic procedure body', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-naming-validator-anon-'));
+  const taskDir = join(root, '24696');
+  const metadata = {
+    id: 24696,
+    num_turns: 1,
+    dataset: 'world_bank_wdi',
+    database: 'bigquery-public-data',
+  };
+  const executedSql = [];
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '24696_turn1_4referenceAnswer.sql'),
+      [
+        'DECLARE',
+        '  lv_year NUMBER := 2004;',
+        'BEGIN',
+        '  NULL;',
+        'EXCEPTION',
+        '  WHEN OTHERS THEN',
+        '    NULL;',
+        'END;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const results = await runNamingStandardValidator('24696', taskDir, metadata, {
+      connect: async () => ({
+        async execute(sql) {
+          executedSql.push(sql);
+          if (/FROM user_errors/i.test(sql) || /FROM user_identifiers/i.test(sql)) {
+            return { rows: [] };
+          }
+          return { rows: [] };
+        },
+        async close() {},
+      }),
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].status, 'PASS');
+
+    const compiledProcedure = executedSql.find((sql) => /CREATE OR REPLACE PROCEDURE TMP_VALIDATE_/i.test(sql));
+    assert.ok(compiledProcedure, 'expected a synthetic procedure compilation statement');
+    assert.match(compiledProcedure, /CREATE OR REPLACE PROCEDURE TMP_VALIDATE_[\s\S]*\sIS\s+lv_year NUMBER := 2004;[\s\S]*BEGIN[\s\S]*END;$/i);
+    assert.doesNotMatch(compiledProcedure, /\bBEGIN\s+DECLARE\b/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 

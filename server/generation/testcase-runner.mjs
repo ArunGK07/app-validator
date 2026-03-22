@@ -166,10 +166,13 @@ function splitSqlStatements(source) {
   const statements = [];
   let buffer = [];
   let inBlock = false;
+  const isSqlPlusDirective = (line) => /^(set|prompt|spool|show\s+errors|exit)\b/i.test(line);
+  const blockStartRe = /^(CREATE(\s+OR\s+REPLACE)?\s+(PROCEDURE|FUNCTION|PACKAGE|TRIGGER|TYPE)|DECLARE|BEGIN)\b/i;
+  const execRe = /^(?:exec|execute)\s+([\s\S]+?)\s*;?\s*$/i;
   const flush = () => {
     const text = buffer.join('\n').trim();
     if (text) {
-      statements.push(text.replace(/;\s*$/u, ''));
+      statements.push(inBlock ? text : text.replace(/;\s*$/u, ''));
     }
     buffer = [];
     inBlock = false;
@@ -177,7 +180,21 @@ function splitSqlStatements(source) {
 
   for (const line of String(source).replace(/\r/g, '').split('\n')) {
     const trimmed = line.trim();
-    if (!buffer.length && /^(CREATE(\s+OR\s+REPLACE)?\s+(PROCEDURE|FUNCTION|PACKAGE|TRIGGER|TYPE)|DECLARE|BEGIN)\b/i.test(trimmed)) {
+    if (!inBlock && isSqlPlusDirective(trimmed)) {
+      continue;
+    }
+    if (!inBlock && !buffer.length && !trimmed) {
+      continue;
+    }
+    const execMatch = !inBlock ? trimmed.match(execRe) : null;
+    if (execMatch) {
+      const invocation = execMatch[1].replace(/;\s*$/u, '').trim();
+      if (invocation) {
+        statements.push(`BEGIN ${invocation}; END;`);
+      }
+      continue;
+    }
+    if ((!buffer.length || buffer.every((entry) => !entry.trim())) && blockStartRe.test(trimmed)) {
       inBlock = true;
     }
     if (trimmed === '/' && inBlock) {

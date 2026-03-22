@@ -78,7 +78,17 @@ function tempObjectName(filePath) {
 }
 
 function wrapAnonymousBlock(sql, name) {
-  return `CREATE OR REPLACE PROCEDURE ${name} IS\nBEGIN\n${sql}\nEND;`;
+  const trimmed = sql.trim();
+
+  if (/^DECLARE\b/i.test(trimmed)) {
+    return `CREATE OR REPLACE PROCEDURE ${name} ${trimmed.replace(/^DECLARE\b/i, 'IS')}`;
+  }
+
+  if (/^BEGIN\b/i.test(trimmed)) {
+    return `CREATE OR REPLACE PROCEDURE ${name} IS\n${trimmed}`;
+  }
+
+  return `CREATE OR REPLACE PROCEDURE ${name} IS\nBEGIN\n${trimmed}\nEND;`;
 }
 
 function extractCreatedObjects(sql) {
