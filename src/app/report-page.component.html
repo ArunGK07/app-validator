@@ -1,8 +1,30 @@
-﻿<section class="report-shell">
+<section class="report-shell">
   <div class="report-header">
     <div class="report-header__main">
       <div class="report-header__title">
-        <h2> Task {{ taskId }}</h2>
+        <div class="report-header__title-row">
+          <h2>
+            <a class="task-link report-header__task-link" [href]="getReportTaskHref()" target="_blank" rel="noopener noreferrer">
+              Task {{ taskId }}
+            </a>
+          </h2>
+          <a
+            *ngIf="getReportCollabHref() as collabHref"
+            class="task-link-icon"
+            [href]="collabHref"
+            target="_blank"
+            rel="noopener noreferrer"
+            [attr.aria-label]="'Open RLHF prompt for task ' + taskId"
+            title="Open RLHF prompt"
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+              <path
+                d="M11 3h6v6h-2V6.41l-7.29 7.3-1.42-1.42L13.59 5H11V3Zm4 14H5V5h4V3H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4h-2v4Z"
+                fill="currentColor"
+              />
+            </svg>
+          </a>
+        </div>
         <p *ngIf="report?.folderPath" class="eyebrow">{{ report?.folderPath }}</p>
       </div>
 
@@ -16,19 +38,19 @@
                   <span class="task-summary__value" [class.task-summary__value--highlight]="item.highlight || item.label === 'Reasoning Types'">{{ item.value }}</span>
                 </span>
               </div>
+
+              <div *ngIf="taskId && !loadingReport && headerMetaItems.length" class="report-header__meta task-summary__chips task-summary__chips--meta task-summary__chips--meta-left">
+                <span *ngFor="let item of headerMetaItems" class="task-summary__chip">
+                  <span class="task-summary__label">{{ item.label }}</span>
+                  <span class="task-summary__value">{{ item.value }}</span>
+                </span>
+              </div>
             </ng-container>
             <ng-template #requirementSummaryFallback>
               <span>{{ headerRequirementSummary }}</span>
             </ng-template>
           </div>
         </div>
-      </div>
-
-      <div *ngIf="taskId && !loadingReport && headerMetaItems.length" class="report-header__meta task-summary__chips task-summary__chips--meta task-summary__chips--meta-left">
-        <span *ngFor="let item of headerMetaItems" class="task-summary__chip">
-          <span class="task-summary__label">{{ item.label }}</span>
-          <span class="task-summary__value">{{ item.value }}</span>
-        </span>
       </div>
     </div>
 
@@ -39,7 +61,7 @@
 
     <div *ngIf="taskId && !loadingReport && fileGroups.length" class="report-header__full report-header__groups">
       <div class="report-header__groups-row">
-        <div class="turn-nav">
+        <div *ngIf="showTurnGroupSelector" class="turn-nav">
           <button
             *ngFor="let group of fileGroups"
             type="button"
@@ -81,8 +103,35 @@
       </div>
     </div>
 
-    <div *ngIf="taskId && !loadingReport && report" class="report-header__full">
-      <div class="file-strip-panel file-strip-panel--header">
+    <div *ngIf="taskId && !loadingReport && report" class="report-header__full report-header__review-controls">
+      <div class="review-mode-toggle" role="tablist" aria-label="Report review mode">
+        <button
+          type="button"
+          class="review-mode-toggle__button"
+          [class.review-mode-toggle__button--active]="reviewMode === 'single'"
+          (click)="selectReviewMode('single')"
+        >
+          Single file
+        </button>
+        <button
+          type="button"
+          class="review-mode-toggle__button"
+          [class.review-mode-toggle__button--active]="reviewMode === 'turn'"
+          (click)="selectReviewMode('turn')"
+        >
+          Turn review
+        </button>
+        <button
+          type="button"
+          class="review-mode-toggle__button"
+          [class.review-mode-toggle__button--active]="reviewMode === 'task'"
+          (click)="selectReviewMode('task')"
+        >
+          Task review
+        </button>
+      </div>
+
+      <div *ngIf="showSingleFileStrip" class="file-strip-panel file-strip-panel--header">
         <div *ngIf="visibleFiles.length; else noFiles" class="file-list file-list--cards">
           <button
             *ngFor="let file of visibleFiles"
@@ -98,7 +147,6 @@
               <span class="file-item__name">{{ getDisplayFileButtonLabel(file.name) }}</span>
               <span class="file-item__badge">{{ getFileValidationBadge(file.name) }}</span>
             </span>
-
           </button>
         </div>
 
@@ -128,6 +176,7 @@
     <div *ngIf="taskId && !loadingReport && report" class="report-content">
       <div #reportGrid class="report-grid" [style.--validation-panel-width]="validationPanelWidth + 'px'">
         <section class="file-preview-panel">
+          <ng-container *ngIf="!isCombinedReviewMode; else combinedReviewMode">
           <div *ngIf="loadingFile" class="loading-card loading-card--inline" role="status" aria-live="polite">
             <span class="spinner" aria-hidden="true"></span>
             <span>Loading file content...</span>
@@ -366,6 +415,70 @@
               <p>Choose a file from the file strip above to preview its contents.</p>
             </div>
           </ng-template>
+          </ng-container>
+
+          <ng-template #combinedReviewMode>
+            <div class="combined-review">
+              <div class="combined-review__header">
+                <div>
+                  <h3>{{ reviewMode === 'turn' ? 'Turn Review' : 'Task Review' }}</h3>
+                  <p *ngIf="reviewMode === 'turn'">All main files for the selected turn in canonical order.</p>
+                  <p *ngIf="reviewMode === 'task'">All turns rendered together in canonical file order for review.</p>
+                </div>
+              </div>
+
+              <div *ngIf="combinedLoading" class="loading-card loading-card--inline" role="status" aria-live="polite">
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Loading combined review...</span>
+              </div>
+
+              <div *ngIf="combinedError" class="notice notice--error combined-review__notice">{{ combinedError }}</div>
+
+              <div *ngIf="!combinedLoading && isTurnReviewUnavailable" class="empty-state empty-state--compact">
+                <h3>Select a turn</h3>
+                <p>Turn review is available only for turn groups. Pick a turn chip to see all main files together.</p>
+              </div>
+
+              <div *ngIf="!combinedLoading && !isTurnReviewUnavailable && !combinedReviewSections.length" class="empty-state empty-state--compact">
+                <h3>No combined review content</h3>
+                <p>No main turn files are available for this review mode yet.</p>
+              </div>
+
+              <div *ngIf="!combinedLoading && combinedReviewSections.length" class="combined-review__sections">
+                <section *ngFor="let section of combinedReviewSections" class="combined-review__turn">
+                  <div class="combined-review__turn-header">
+                    <div>
+                      <h3>{{ section.title }}</h3>
+                      <p>{{ section.files.length }} file{{ section.files.length === 1 ? '' : 's' }}</p>
+                    </div>
+                  </div>
+
+                  <article *ngFor="let file of section.files" class="combined-review__file">
+                    <div class="combined-review__file-header">
+                      <div>
+                        <h4>{{ file.label }}</h4>
+                        <p>{{ file.name }}</p>
+                      </div>
+                      <div class="combined-review__file-actions">
+                        <span>{{ file.modifiedAt | date: 'medium' }}</span>
+                        <span>{{ file.lineCount }} line{{ file.lineCount === 1 ? '' : 's' }}</span>
+                        <button type="button" class="action-button action-button--secondary" (click)="openFileInSingleView(file.name)">
+                          Open in single view
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="file-code-view combined-review__code-view">
+                      <div *ngFor="let line of getContentLines(file.content); let lineIndex = index" class="file-code-line" [attr.data-line]="lineIndex + 1">
+                        <span class="file-code-line__number">{{ lineIndex + 1 }}</span>
+                        <span class="file-code-line__content">{{ line || ' ' }}</span>
+                      </div>
+                    </div>
+                  </article>
+                </section>
+              </div>
+            </div>
+          </ng-template>
         </section>
 
         <div
@@ -385,7 +498,7 @@
               <h3>Task Validation Overview</h3>
               <div class="validation-filter-toggles">
                 <label class="validation-filter-toggle">
-                  <input type="checkbox" [(ngModel)]="showCurrentFileErrorsOnly" />
+                  <input type="checkbox" [(ngModel)]="showCurrentFileErrorsOnly" [disabled]="isCombinedReviewMode" />
                   <span>Current file only</span>
                 </label>
                 <label class="validation-filter-toggle">
@@ -541,6 +654,7 @@
     </div>
   </div>
 </section>
+
 
 
 

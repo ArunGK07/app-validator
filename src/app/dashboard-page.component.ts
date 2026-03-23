@@ -1,4 +1,4 @@
-﻿import { CommonModule } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { Component, DestroyRef, OnInit, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
@@ -25,6 +25,7 @@ interface SortState {
 })
 export class DashboardPageComponent implements OnInit {
   private static readonly DEFAULT_BATCH_ID = '311';
+  private static readonly FILTERS_SESSION_KEY = 'app-validator.dashboard.filters';
   private readonly api = inject(DashboardApiService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly fb = inject(FormBuilder);
@@ -67,6 +68,12 @@ export class DashboardPageComponent implements OnInit {
   bulkValidateCompleted = 0;
 
   ngOnInit(): void {
+    this.restoreFiltersFromSession();
+
+    this.filtersForm.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      this.persistFiltersToSession();
+    });
+
     this.filtersForm.valueChanges.pipe(debounceTime(250), takeUntilDestroyed(this.destroyRef)).subscribe(() => {
       this.fetchData();
     });
@@ -329,6 +336,8 @@ export class DashboardPageComponent implements OnInit {
   }
 
   openReport(taskId: string): void {
+    this.persistFiltersToSession();
+
     void this.router.navigate(['/report'], {
       queryParams: { taskId },
     });
@@ -478,6 +487,53 @@ export class DashboardPageComponent implements OnInit {
     return this.teamMembers.map((member) => member.id).filter(Boolean).join(',');
   }
 
+  private restoreFiltersFromSession(): void {
+    const savedFilters = this.readFiltersFromSession();
+    if (!savedFilters) {
+      return;
+    }
+
+    this.filtersForm.patchValue(savedFilters, { emitEvent: false });
+  }
+
+  private persistFiltersToSession(): void {
+    try {
+      sessionStorage.setItem(
+        DashboardPageComponent.FILTERS_SESSION_KEY,
+        JSON.stringify(this.filtersForm.getRawValue() as TaskFilters),
+      );
+    } catch {
+      // Ignore session storage failures and keep the dashboard usable.
+    }
+  }
+
+  private readFiltersFromSession(): TaskFilters | null {
+    try {
+      const storedValue = sessionStorage.getItem(DashboardPageComponent.FILTERS_SESSION_KEY);
+      if (!storedValue) {
+        return null;
+      }
+
+      const parsed = JSON.parse(storedValue);
+      if (!parsed || typeof parsed !== 'object') {
+        return null;
+      }
+
+      const stored = parsed as Partial<TaskFilters>;
+      return {
+        userId: typeof stored.userId === 'string' ? stored.userId : '',
+        taskIdQuery: typeof stored.taskIdQuery === 'string' ? stored.taskIdQuery : '',
+        status: typeof stored.status === 'string' && stored.status ? stored.status : 'all',
+        batchId:
+          typeof stored.batchId === 'string' && stored.batchId
+            ? stored.batchId
+            : DashboardPageComponent.DEFAULT_BATCH_ID,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   private asErrorMessage(error: unknown): string {
     if (typeof error === 'object' && error !== null && 'error' in error) {
       const nested = (error as { error?: { message?: string } }).error?.message;
@@ -521,6 +577,8 @@ export class DashboardPageComponent implements OnInit {
     return 0;
   }
 }
+
+
 
 
 

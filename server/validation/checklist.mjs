@@ -1,4 +1,4 @@
-﻿const VALIDATOR_NAMES = {
+const VALIDATOR_NAMES = {
   promptStructure: 'PromptStructureValidator',
   plsqlProgram: 'PLSQLProgramValidator',
   complexityTableCount: 'ComplexityTableCountValidator',
@@ -320,6 +320,14 @@ export const VALIDATION_CHECKLIST_CATALOG = [
     description: 'SQLERRM must not be used in rubric-unsafe ways.',
   },
   {
+    checkId: 'plsql.non-deterministic-time',
+    category: 'plsql-program',
+    validator: VALIDATOR_NAMES.plsqlProgram,
+    item: 'Non-Deterministic Time Usage',
+    ruleIds: ['disallowed_nondeterministic_time_source', 'not_present'],
+    description: 'Reference answers must not use volatile date/time sources such as SYSDATE or SYSTIMESTAMP.',
+  },
+  {
     checkId: 'plsql.program-unit-creation',
     category: 'plsql-program',
     validator: VALIDATOR_NAMES.plsqlProgram,
@@ -612,5 +620,6 @@ function inferCategory(validator) {
   if (validator === VALIDATOR_NAMES.artifactAlignment) return 'artifact-alignment';
   return 'other';
 }
+
 
 

@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildCombinedTaskReviewSections,
+  buildCombinedTurnReviewSection,
   buildFileGroups,
   buildValidationStatusCache,
+  classifyCanonicalArtifact,
   filterChecklistRows,
   findFileValidationEntry,
   matchesCurrentFile,
   resolveRecalculationFilesForIssue,
   resolveReportFileName,
+  sortByCanonicalArtifactOrder,
 } from './report-page.helpers';
 import { TaskReport, ValidationMasterReport } from './models';
 
@@ -254,4 +258,95 @@ test('resolveRecalculationFilesForIssue ignores unrelated validation failures', 
   });
 
   assert.deepEqual(files, []);
+});
+
+
+const combinedReviewReport: TaskReport = {
+  taskId: '9418',
+  folderPath: 'D:/task-output/9418',
+  files: [
+    { name: '9418_turn2_5testCases.sql', size: 18, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'sql' },
+    { name: '9418_turn1_4referenceAnswer.sql', size: 20, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'sql' },
+    { name: '9418_turn1_1user.txt', size: 10, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'txt' },
+    { name: '9418_turn1_7plSqlConstructs.txt', size: 12, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'txt' },
+    { name: '9418_turn1_2tables.txt', size: 10, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'txt' },
+    { name: '9418_turn1_3columns.txt', size: 10, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'txt' },
+    { name: '9418_turn1_6reasoningTypes.txt', size: 12, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'txt' },
+    { name: '9418_turn1_5testCases.sql', size: 18, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'sql' },
+    { name: '9418_turn2_1user.txt', size: 10, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'txt' },
+    { name: '9418_turn2_4referenceAnswer.sql', size: 20, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'sql' },
+    { name: '9418_turn2_9notes.txt', size: 10, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'txt' },
+    { name: '9418_1metadata.json', size: 30, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'json' },
+    { name: '_logs/validate-2026.log', size: 20, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'log' },
+    { name: '_audit/9418_turn1_6reasoningTypes.audit.json', size: 20, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'json' },
+    { name: '_validation/master_validator_task_9418.json', size: 20, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'json' },
+    { name: '_validation/files/referenceanswer__abcd1234.json', size: 20, modifiedAt: '2026-03-22T10:00:00.000Z', extension: 'json' },
+  ],
+};
+
+test('classifyCanonicalArtifact recognizes the main turn files only', () => {
+  assert.equal(classifyCanonicalArtifact('9418', '9418_turn1_1user.txt'), 'prompt');
+  assert.equal(classifyCanonicalArtifact('9418', '9418_turn1_2tables.txt'), 'tables');
+  assert.equal(classifyCanonicalArtifact('9418', '9418_turn1_3columns.txt'), 'columns');
+  assert.equal(classifyCanonicalArtifact('9418', '9418_turn1_4referenceAnswer.sql'), 'plsql-program');
+  assert.equal(classifyCanonicalArtifact('9418', '9418_turn1_5testCases.sql'), 'test-cases');
+  assert.equal(classifyCanonicalArtifact('9418', '9418_turn1_6reasoningTypes.txt'), 'reasoning-types');
+  assert.equal(classifyCanonicalArtifact('9418', '9418_turn1_7plSqlConstructs.txt'), 'plsql-constructors');
+  assert.equal(classifyCanonicalArtifact('9418', '_logs/validate-2026.log'), null);
+  assert.equal(classifyCanonicalArtifact('9418', '9418_1metadata.json'), null);
+});
+
+test('sortByCanonicalArtifactOrder keeps the canonical turn artifact sequence', () => {
+  assert.deepEqual(sortByCanonicalArtifactOrder('9418', [
+    '9418_turn1_5testCases.sql',
+    '9418_turn1_2tables.txt',
+    '9418_turn1_7plSqlConstructs.txt',
+    '9418_turn1_1user.txt',
+    '9418_turn1_4referenceAnswer.sql',
+    '9418_turn1_6reasoningTypes.txt',
+    '9418_turn1_3columns.txt',
+  ]), [
+    '9418_turn1_1user.txt',
+    '9418_turn1_2tables.txt',
+    '9418_turn1_3columns.txt',
+    '9418_turn1_4referenceAnswer.sql',
+    '9418_turn1_5testCases.sql',
+    '9418_turn1_6reasoningTypes.txt',
+    '9418_turn1_7plSqlConstructs.txt',
+  ]);
+});
+
+test('buildCombinedTurnReviewSection returns only recognized main files in canonical order', () => {
+  const section = buildCombinedTurnReviewSection(combinedReviewReport, 1);
+
+  assert.equal(section?.turnId, 1);
+  assert.deepEqual(section?.files.map((file) => file.name), [
+    '9418_turn1_1user.txt',
+    '9418_turn1_2tables.txt',
+    '9418_turn1_3columns.txt',
+    '9418_turn1_4referenceAnswer.sql',
+    '9418_turn1_5testCases.sql',
+    '9418_turn1_6reasoningTypes.txt',
+    '9418_turn1_7plSqlConstructs.txt',
+  ]);
+});
+
+test('buildCombinedTaskReviewSections returns each turn in numeric order and omits unknown artifacts', () => {
+  const sections = buildCombinedTaskReviewSections(combinedReviewReport);
+
+  assert.deepEqual(sections.map((section) => section.turnId), [1, 2]);
+  assert.deepEqual(sections[0]?.files.map((file) => file.name), [
+    '9418_turn1_1user.txt',
+    '9418_turn1_2tables.txt',
+    '9418_turn1_3columns.txt',
+    '9418_turn1_4referenceAnswer.sql',
+    '9418_turn1_5testCases.sql',
+    '9418_turn1_6reasoningTypes.txt',
+    '9418_turn1_7plSqlConstructs.txt',
+  ]);
+  assert.deepEqual(sections[1]?.files.map((file) => file.name), [
+    '9418_turn2_1user.txt',
+    '9418_turn2_4referenceAnswer.sql',
+    '9418_turn2_5testCases.sql',
+  ]);
 });

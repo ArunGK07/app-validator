@@ -40,6 +40,11 @@ test('runPlsqlProgramValidator emits PASS artifact checks for native analyzer fi
       ['PL/SQL Constructs Artifact', '25002_turn1_7plSqlConstructs.txt'],
     ];
 
+    const deterministicTimeRow = results.find((entry) => entry.item === 'Non-Deterministic Time Usage');
+    assert.ok(deterministicTimeRow, 'missing validation row for Non-Deterministic Time Usage');
+    assert.equal(deterministicTimeRow.status, 'PASS');
+    assert.equal(deterministicTimeRow.ruleId, 'not_present');
+
     for (const [item, sourceFile] of expectedArtifacts) {
       const row = results.find((entry) => entry.item === item);
       assert.ok(row, `missing validation row for ${item}`);
@@ -67,3 +72,55 @@ test('runPlsqlProgramValidator emits PASS artifact checks for native analyzer fi
 });
 
 
+
+test('runPlsqlProgramValidator fails when reference answers use volatile time sources', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-plsql-program-time-'));
+  const taskDir = join(root, '25003');
+  const metadata = {
+    id: 25003,
+    num_turns: 1,
+    required_anonymous_block: false,
+    required_procs_funcs_pkgs: false,
+    target_reasoning_types: [],
+  };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(join(taskDir, '25003_turn1_1user.txt'), 'Requirements:\nAnonymous Block:\n', 'utf8');
+    await writeFile(
+      join(taskDir, '25003_turn1_4referenceAnswer.sql'),
+      'DECLARE\n  lv_today DATE := SYSDATE;\nBEGIN\n  DBMS_OUTPUT.PUT_LINE(CURRENT_TIMESTAMP);\nEXCEPTION\n  WHEN OTHERS THEN\n    NULL;\nEND;\n/',
+      'utf8',
+    );
+    await writeFile(join(taskDir, '25003_turn1_3columns.txt'), 'SAMPLE.EMPLOYEES.employee_id\n', 'utf8');
+    await writeFile(join(taskDir, '25003_turn1_5testCases.sql'), 'execution_result:\n1\n', 'utf8');
+    await writeFile(join(taskDir, '25003_turn1_6reasoningTypes.txt'), 'Exception Handling\n', 'utf8');
+    await writeFile(join(taskDir, '25003_turn1_7plSqlConstructs.txt'), 'DECLARE ... BEGIN ... END\n', 'utf8');
+
+    const results = await runPlsqlProgramValidator('25003', taskDir, metadata);
+    const row = results.find((entry) => entry.item === 'Non-Deterministic Time Usage');
+    assert.ok(row, 'missing validation row for Non-Deterministic Time Usage');
+    assert.equal(row.status, 'FAIL');
+    assert.equal(row.ruleId, 'disallowed_nondeterministic_time_source');
+    assert.equal(row.sourceFile, '25003_turn1_4referenceAnswer.sql');
+    assert.equal(row.line, 2);
+    assert.match(row.present ?? '', /SYSDATE at line 2/);
+    assert.match(row.present ?? '', /CURRENT_TIMESTAMP at line 4/);
+
+    const checklist = buildValidationChecklist([
+      {
+        validator: VALIDATOR_NAMES.plsqlProgram,
+        results,
+        summary: summarizeResults(results),
+      },
+    ]);
+
+    const checklistRow = checklist.find(
+      (entry) => entry.validator === VALIDATOR_NAMES.plsqlProgram && entry.item === 'Non-Deterministic Time Usage',
+    );
+    assert.ok(checklistRow, 'missing checklist row for Non-Deterministic Time Usage');
+    assert.equal(checklistRow.status, 'FAIL');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

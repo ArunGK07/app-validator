@@ -1,4 +1,4 @@
-﻿import { CommonModule } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { Component, DestroyRef, ElementRef, OnInit, ViewChild, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -20,8 +20,11 @@ import {
   ValidationRunSummary,
 } from './models';
 import {
+  buildCombinedTaskReviewSections,
+  buildCombinedTurnReviewSection,
   buildFileGroups as buildReportFileGroups,
   buildValidationStatusCache,
+  CombinedTurnReviewSection,
   filterChecklistRows,
   findFileValidationEntry,
   getShortFileLabel as getReportFileShortLabel,
@@ -102,6 +105,22 @@ interface TopValidationAlert {
   line: number | null;
 }
 
+type ReviewMode = 'single' | 'turn' | 'task';
+
+interface CombinedReviewFileViewModel {
+  name: string;
+  label: string;
+  modifiedAt: string;
+  content: string;
+  lineCount: number;
+}
+
+interface CombinedReviewSectionViewModel {
+  turnId: number;
+  title: string;
+  files: CombinedReviewFileViewModel[];
+}
+
 @Component({
   selector: 'app-report-page',
   standalone: true,
@@ -115,6 +134,8 @@ export class ReportPageComponent implements OnInit {
   private readonly api = inject(DashboardApiService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
+  private readonly labelingBaseUrl = 'https://labeling-o.turing.com';
+  private readonly rlhfBaseUrl = 'https://rlhf-v3.turing.com';
   @ViewChild('fileEditor') private fileEditorRef?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('readOnlyPreview') private readOnlyPreviewRef?: ElementRef<HTMLElement>;
   @ViewChild('reportGrid') private reportGridRef?: ElementRef<HTMLElement>;
@@ -133,6 +154,7 @@ export class ReportPageComponent implements OnInit {
     | null = null;
 
   taskId = '';
+  headerSummaryRow: ConversationRow | null = null;
   report: TaskReport | null = null;
   headerMetaItems: HeaderMetaItem[] = [];
   headerRequirementItems: HeaderRequirementItem[] = [];
@@ -142,6 +164,10 @@ export class ReportPageComponent implements OnInit {
   selectedFilePreference = '';
   fileGroups: FileGroup[] = [];
   activeGroupKey = 'all';
+  reviewMode: ReviewMode = 'single';
+  combinedLoading = false;
+  combinedError = '';
+  fileContentCache = new Map<string, TaskReportFile>();
   fileContent: TaskReportFile | null = null;
   activeFileView: 'content' | 'validation' | 'raw-log' = 'content';
   selectedFileValidationEntry: ValidationFileReportIndexEntry | null = null;
@@ -184,6 +210,7 @@ export class ReportPageComponent implements OnInit {
 
       this.taskId = taskId;
       this.error = '';
+      this.headerSummaryRow = null;
       this.report = null;
       this.headerMetaItems = [];
       this.headerRequirementItems = [];
@@ -192,6 +219,10 @@ export class ReportPageComponent implements OnInit {
       this.selectedFilePreference = '';
       this.fileGroups = [];
       this.activeGroupKey = 'all';
+      this.reviewMode = 'single';
+      this.combinedLoading = false;
+      this.combinedError = '';
+      this.fileContentCache = new Map<string, TaskReportFile>();
       this.fileContent = null;
       this.activeFileView = 'content';
       this.selectedFileValidationEntry = null;
@@ -238,36 +269,36 @@ export class ReportPageComponent implements OnInit {
     this.selectedFileName = name;
     this.selectedFileByGroup[this.activeGroupKey] = name;
     this.selectedFilePreference = this.getSelectionKey(name);
-    this.loadingFile = true;
     this.previewTargetLine = options?.targetLine ?? null;
     this.clearAutoSaveTimer();
     this.pendingAutoSave = false;
     this.resetSelectedFileArtifacts();
 
-    this.api
-      .getTaskReportFile(this.taskId, name)
-      .pipe(finalize(() => (this.loadingFile = false)))
-      .subscribe({
-        next: (file) => {
-          this.fileContent = file;
-          this.editableContent = file.content;
-          this.editingFile = false;
-          this.lastSavedAt = null;
-          this.lastSaveError = '';
-          this.refreshSelectedFileArtifacts();
-          this.schedulePreviewNavigation();
-        },
-        error: (error: unknown) => {
-          this.error = this.asErrorMessage(error);
-          this.fileContent = null;
-          this.resetSelectedFileArtifacts();
-          this.editableContent = '';
-          this.editingFile = false;
-          this.lastSavedAt = null;
-          this.lastSaveError = '';
-          this.previewTargetLine = null;
-        },
-      });
+    const cachedFile = this.fileContentCache.get(name);
+    if (cachedFile) {
+      this.loadingFile = false;
+      this.applySelectedFileContent(cachedFile);
+      return;
+    }
+
+    this.loadingFile = true;
+
+    try {
+      const file = await firstValueFrom(this.api.getTaskReportFile(this.taskId, name));
+      this.rememberFileContent(file);
+      this.applySelectedFileContent(file);
+    } catch (error) {
+      this.error = this.asErrorMessage(error);
+      this.fileContent = null;
+      this.resetSelectedFileArtifacts();
+      this.editableContent = '';
+      this.editingFile = false;
+      this.lastSavedAt = null;
+      this.lastSaveError = '';
+      this.previewTargetLine = null;
+    } finally {
+      this.loadingFile = false;
+    }
   }
 
   isSelectedFile(name: string): boolean {
@@ -436,6 +467,83 @@ export class ReportPageComponent implements OnInit {
     return this.activeGroupKey === key;
   }
 
+  get isCombinedReviewMode(): boolean {
+    return this.reviewMode !== 'single';
+  }
+
+  get showTurnGroupSelector(): boolean {
+    return this.reviewMode !== 'task';
+  }
+
+  get showSingleFileStrip(): boolean {
+    return this.reviewMode === 'single';
+  }
+
+  get combinedReviewSections(): CombinedReviewSectionViewModel[] {
+    if (!this.report || !this.isCombinedReviewMode) {
+      return [];
+    }
+
+    const sections = this.reviewMode === 'turn'
+      ? this.buildTurnReviewSections()
+      : this.buildTaskReviewSections();
+
+    return sections
+      .map((section) => this.toCombinedReviewSection(section))
+      .filter((section): section is CombinedReviewSectionViewModel => section !== null);
+  }
+
+  get isTurnReviewUnavailable(): boolean {
+    return this.reviewMode === 'turn' && !this.activeGroupKey.startsWith('turn-');
+  }
+
+  async selectReviewMode(mode: ReviewMode): Promise<void> {
+    if (this.reviewMode === mode) {
+      return;
+    }
+
+    const didFlush = await this.flushPendingEdits();
+    if (!didFlush) {
+      return;
+    }
+
+    this.reviewMode = mode;
+    this.combinedError = '';
+    this.activeFileView = 'content';
+
+    if (mode !== 'single') {
+      this.showCurrentFileErrorsOnly = false;
+      void this.ensureCombinedReviewContentLoaded();
+      return;
+    }
+
+    if (!this.report) {
+      return;
+    }
+
+    const preferredFile = this.resolvePreferredFile(this.visibleFiles);
+    if (preferredFile && preferredFile !== this.selectedFileName) {
+      await this.selectFile(preferredFile);
+    }
+  }
+
+  async openFileInSingleView(name: string): Promise<void> {
+    const didFlush = await this.flushPendingEdits();
+    if (!didFlush) {
+      return;
+    }
+
+    const owningGroup = this.fileGroups.find((group) => group.files.includes(name));
+    if (owningGroup) {
+      this.activeGroupKey = owningGroup.key;
+    }
+
+    this.reviewMode = 'single';
+    this.combinedError = '';
+    this.activeFileView = 'content';
+    await this.selectFile(name);
+  }
+
   async showGroup(key: string): Promise<void> {
     const didFlush = await this.flushPendingEdits();
     if (!didFlush) {
@@ -443,6 +551,16 @@ export class ReportPageComponent implements OnInit {
     }
 
     this.activeGroupKey = key;
+
+    if (this.reviewMode === 'turn') {
+      this.combinedError = '';
+      void this.ensureCombinedReviewContentLoaded();
+      return;
+    }
+
+    if (this.reviewMode !== 'single') {
+      return;
+    }
 
     const files = this.visibleFiles;
 
@@ -545,6 +663,10 @@ export class ReportPageComponent implements OnInit {
     }
 
     return this.fileContent.content.split(/\r?\n/);
+  }
+
+  getContentLines(content: string): string[] {
+    return content.split(/\r?\n/);
   }
 
   get previewLogLines(): PreviewLogLine[] {
@@ -783,6 +905,8 @@ export class ReportPageComponent implements OnInit {
       this.activeGroupKey = owningGroup.key;
     }
 
+    this.reviewMode = 'single';
+    this.combinedError = '';
     this.actionError = '';
     this.actionMessage = line ? `Opened ${resolvedFile} at line ${line}.` : `Opened ${resolvedFile}.`;
     await this.selectFile(resolvedFile, { targetLine: line });
@@ -1018,6 +1142,10 @@ export class ReportPageComponent implements OnInit {
       return 'Validation results are task-wide. Source links open the related file when available.';
     }
 
+    if (this.isCombinedReviewMode) {
+      return 'Combined review keeps validation in task-wide mode. Source links open the related file.';
+    }
+
     if (this.showCurrentFileErrorsOnly) {
       return 'Showing only failures linked to the selected file.';
     }
@@ -1162,6 +1290,7 @@ export class ReportPageComponent implements OnInit {
           this.report = report;
           this.fileGroups = this.buildFileGroups(report);
           this.validationStatusCache = null;
+          this.fileContentCache = new Map<string, TaskReportFile>();
           const preferredFile = options.preferredFileName ? this.resolveReportFileName(options.preferredFileName) : null;
           const preferredGroupKey = preferredFile
             ? this.fileGroups.find((group) => group.files.includes(preferredFile))?.key ?? null
@@ -1172,12 +1301,22 @@ export class ReportPageComponent implements OnInit {
             ?? (this.fileGroups.some((group) => group.key === currentGroupKey) ? currentGroupKey : this.fileGroups[0]?.key ?? 'all');
           void this.loadPersistedValidationReport(report);
 
-          if (report.files.length) {
+          if (!report.files.length) {
+            this.fileContent = null;
+            this.combinedError = '';
+            return;
+          }
+
+          if (this.reviewMode === 'single') {
             const selectedFile = preferredFile ?? this.resolvePreferredFile(this.visibleFiles);
             if (selectedFile) {
               void this.selectFile(selectedFile);
             }
+            return;
           }
+
+          this.combinedError = '';
+          void this.ensureCombinedReviewContentLoaded();
         },
         error: (error: unknown) => {
           this.error = this.asErrorMessage(error);
@@ -1196,6 +1335,7 @@ export class ReportPageComponent implements OnInit {
           }
 
           const row = rows.find((entry) => entry.taskId === taskId) ?? rows[0] ?? null;
+          this.headerSummaryRow = row;
           this.headerMetaItems = this.buildHeaderMetaItems(row);
           this.headerRequirementItems = this.buildHeaderRequirementItems(row);
           this.headerRequirementSummary = this.buildHeaderRequirementSummary(row);
@@ -1205,6 +1345,7 @@ export class ReportPageComponent implements OnInit {
             return;
           }
 
+          this.headerSummaryRow = null;
           this.headerMetaItems = [];
           this.headerRequirementItems = [];
           this.headerRequirementSummary = '';
@@ -1471,10 +1612,30 @@ export class ReportPageComponent implements OnInit {
   }
 
   private truncateInlineText(value: string, maxLength: number): string {
-    return value.length > maxLength ? `${value.slice(0, maxLength - 1).trimEnd()}…` : value;
+    return value.length > maxLength ? `${value.slice(0, maxLength - 1).trimEnd()}...` : value;
+  }
+
+  getReportTaskHref(): string {
+    return this.taskId ? `${this.labelingBaseUrl}/conversations/${this.taskId}/view` : this.labelingBaseUrl;
+  }
+
+  getReportCollabHref(): string | null {
+    if (this.headerSummaryRow?.collabLink?.trim()) {
+      return this.headerSummaryRow.collabLink.trim();
+    }
+
+    if (!this.headerSummaryRow?.promptId?.trim()) {
+      return null;
+    }
+
+    const url = new URL(`prompt/${this.headerSummaryRow.promptId.trim()}`, `${this.rlhfBaseUrl}/`);
+    url.searchParams.set('origin', this.labelingBaseUrl);
+    url.searchParams.set('redirect_url', this.getReportTaskHref());
+    return url.toString();
   }
 
   private buildTaskLookupFilters(taskId: string): TaskFilters {
+
     return {
       userId: '',
       taskIdQuery: taskId,
@@ -1751,6 +1912,7 @@ export class ReportPageComponent implements OnInit {
     this.saveRequest = (async () => {
       try {
         const file = await firstValueFrom(this.api.saveTaskReportFile(this.taskId, this.fileContent!.name, this.editableContent));
+        this.rememberFileContent(file);
         this.fileContent = file;
         this.editableContent = file.content;
         this.lastSavedAt = file.modifiedAt;
@@ -1945,6 +2107,136 @@ export class ReportPageComponent implements OnInit {
     return content.length;
   }
 
+  private buildTurnReviewSections(): CombinedTurnReviewSection[] {
+    if (!this.report) {
+      return [];
+    }
+
+    const turnId = this.getActiveTurnId();
+    if (turnId === null) {
+      return [];
+    }
+
+    const section = buildCombinedTurnReviewSection(this.report, turnId);
+    return section ? [section] : [];
+  }
+
+  private buildTaskReviewSections(): CombinedTurnReviewSection[] {
+    return this.report ? buildCombinedTaskReviewSections(this.report) : [];
+  }
+
+  private toCombinedReviewSection(section: CombinedTurnReviewSection): CombinedReviewSectionViewModel | null {
+    if (!this.report) {
+      return null;
+    }
+
+    const files = section.files
+      .map((entry) => {
+        const file = this.fileContentCache.get(entry.name);
+        const metadata = this.report?.files.find((reportFile) => reportFile.name === entry.name);
+        if (!file || !metadata) {
+          return null;
+        }
+
+        return {
+          name: entry.name,
+          label: this.getDisplayFileButtonLabel(entry.name),
+          modifiedAt: metadata.modifiedAt,
+          content: file.content,
+          lineCount: this.countLines(file.content),
+        };
+      })
+      .filter((file): file is CombinedReviewFileViewModel => file !== null);
+
+    if (!files.length) {
+      return null;
+    }
+
+    return {
+      turnId: section.turnId,
+      title: `Turn ${section.turnId}`,
+      files,
+    };
+  }
+
+  private getActiveTurnId(): number | null {
+    if (!this.activeGroupKey.startsWith('turn-')) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(this.activeGroupKey.slice(5), 10);
+    return Number.isInteger(parsed) ? parsed : null;
+  }
+
+  private getCombinedReviewTargetFileNames(): string[] {
+    const sections = this.reviewMode === 'turn'
+      ? this.buildTurnReviewSections()
+      : this.buildTaskReviewSections();
+
+    return sections.flatMap((section) => section.files.map((file) => file.name));
+  }
+
+  private async ensureCombinedReviewContentLoaded(): Promise<void> {
+    if (!this.taskId || !this.report || !this.isCombinedReviewMode) {
+      this.combinedLoading = false;
+      return;
+    }
+
+    const targetNames = this.getCombinedReviewTargetFileNames();
+    if (!targetNames.length) {
+      this.combinedLoading = false;
+      this.combinedError = '';
+      return;
+    }
+
+    const missingNames = targetNames.filter((name) => !this.fileContentCache.has(name));
+    if (!missingNames.length) {
+      this.combinedLoading = false;
+      return;
+    }
+
+    const requestedTaskId = this.taskId;
+    this.combinedLoading = true;
+    this.combinedError = '';
+
+    try {
+      const files = await Promise.all(missingNames.map((name) => firstValueFrom(this.api.getTaskReportFile(requestedTaskId, name))));
+      if (this.taskId !== requestedTaskId) {
+        return;
+      }
+
+      for (const file of files) {
+        this.rememberFileContent(file);
+      }
+    } catch (error) {
+      if (this.taskId === requestedTaskId) {
+        this.combinedError = this.asErrorMessage(error);
+      }
+    } finally {
+      if (this.taskId === requestedTaskId) {
+        this.combinedLoading = false;
+      }
+    }
+  }
+
+  private applySelectedFileContent(file: TaskReportFile): void {
+    this.fileContent = file;
+    this.editableContent = file.content;
+    this.editingFile = false;
+    this.lastSavedAt = null;
+    this.lastSaveError = '';
+    this.refreshSelectedFileArtifacts();
+    this.schedulePreviewNavigation();
+  }
+
+  private rememberFileContent(file: TaskReportFile): void {
+    this.fileContentCache.set(file.name, file);
+  }
+
+  private countLines(content: string): number {
+    return content === '' ? 1 : content.split(/\r?\n/).length;
+  }
+
   private resolveReportFileName(sourceFile: string): string | null {
     return this.report ? resolveNamedReportFile(this.report.files, sourceFile) : null;
   }
@@ -2074,6 +2366,8 @@ export class ReportPageComponent implements OnInit {
       .join(' ');
   }
 }
+
+
 
 
 

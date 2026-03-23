@@ -1,4 +1,4 @@
-﻿import {
+import {
   VALIDATOR_NAMES,
   createFail,
   createPass,
@@ -9,6 +9,7 @@
 } from './common.mjs';
 
 const SQLERRM_RE = /\bSQLERRM\b/gi;
+const NON_DETERMINISTIC_TIME_SOURCE_RE = /\b(?:SYSDATE|SYSTIMESTAMP|CURRENT_DATE|CURRENT_TIMESTAMP|LOCALTIMESTAMP)\b/gi;
 const EXCEPTION_BLOCK_RE = /\bEXCEPTION\b[\s\S]{0,100}?\bWHEN\b/i;
 const RCA_REASONING_TYPE = 'root cause analysis';
 const INLINE_EXECUTION_REASONING_TYPES = new Set(['inline execution']);
@@ -209,6 +210,24 @@ function validateTurnCode(taskId, turnNumber, codeText, sourceName) {
     }));
   } else {
     results.push(createPass(validatorName, taskId, turnNumber, 'SQLERRM Usage', 'not_present', sourceName));
+  }
+
+  const nonDeterministicTimeMatches = [...codeText.matchAll(NON_DETERMINISTIC_TIME_SOURCE_RE)];
+  if (nonDeterministicTimeMatches.length) {
+    const usages = nonDeterministicTimeMatches.map((match) => ({
+      token: match[0].toUpperCase(),
+      line: findLineNumber(codeText, match.index ?? 0),
+    }));
+    const present = usages.map((entry) => `${entry.token} at line ${entry.line}`);
+    results.push(createFail(validatorName, taskId, turnNumber, 'Non-Deterministic Time Usage', 'disallowed_nondeterministic_time_source', {
+      expected: 'reference answers must avoid volatile time sources such as SYSDATE, SYSTIMESTAMP, CURRENT_DATE, CURRENT_TIMESTAMP, and LOCALTIMESTAMP',
+      present: `${present.join('; ')} found in ${sourceName}`,
+      update: 'replace volatile clock-based values with deterministic literals, parameters, or dataset-driven values',
+      sourceFile: sourceName,
+      line: usages[0]?.line ?? null,
+    }));
+  } else {
+    results.push(createPass(validatorName, taskId, turnNumber, 'Non-Deterministic Time Usage', 'not_present', sourceName));
   }
 
   return results;
@@ -519,6 +538,9 @@ export async function runPlsqlProgramValidator(taskId, taskDir, metadata) {
 
   return results;
 }
+
+
+
 
 
 

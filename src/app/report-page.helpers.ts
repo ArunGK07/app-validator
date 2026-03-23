@@ -12,6 +12,25 @@ export interface FileGroup {
   files: string[];
 }
 
+export type CanonicalArtifactType =
+  | 'prompt'
+  | 'tables'
+  | 'columns'
+  | 'plsql-program'
+  | 'test-cases'
+  | 'reasoning-types'
+  | 'plsql-constructors';
+
+export interface CombinedTurnReviewFile {
+  name: string;
+  artifactType: CanonicalArtifactType;
+}
+
+export interface CombinedTurnReviewSection {
+  turnId: number;
+  files: CombinedTurnReviewFile[];
+}
+
 export interface RecalculationIssue {
   validator?: string | null;
   item?: string | null;
@@ -19,6 +38,20 @@ export interface RecalculationIssue {
   turnId?: number | null;
   sourceFile?: string | null;
 }
+
+const CANONICAL_ARTIFACT_ORDER: CanonicalArtifactType[] = [
+  'prompt',
+  'tables',
+  'columns',
+  'plsql-program',
+  'test-cases',
+  'reasoning-types',
+  'plsql-constructors',
+];
+
+const CANONICAL_ARTIFACT_RANK = new Map<CanonicalArtifactType, number>(
+  CANONICAL_ARTIFACT_ORDER.map((type, index) => [type, index]),
+);
 
 export function getShortFileLabel(taskId: string, name: string): string {
   const normalizedName = name.replace(/\\/g, '/');
@@ -31,6 +64,44 @@ export function getShortFileLabel(taskId: string, name: string): string {
 export function readTurnNumber(fileName: string): number | null {
   const match = fileName.replace(/\\/g, '/').match(/(?:^|\/|_)turn(\d+)(?:_|\.|\/|$)/i);
   return match ? Number(match[1]) : null;
+}
+
+export function classifyCanonicalArtifact(taskId: string, fileName: string): CanonicalArtifactType | null {
+  const shortLabel = getShortFileLabel(taskId, fileName).trim().toLowerCase();
+
+  switch (shortLabel) {
+    case '1user.txt':
+      return 'prompt';
+    case '2tables.txt':
+      return 'tables';
+    case '3columns.txt':
+      return 'columns';
+    case '4referenceanswer.sql':
+      return 'plsql-program';
+    case '5testcases.sql':
+      return 'test-cases';
+    case '6reasoningtypes.txt':
+      return 'reasoning-types';
+    case '7plsqlconstructs.txt':
+      return 'plsql-constructors';
+    default:
+      return null;
+  }
+}
+
+export function sortByCanonicalArtifactOrder(taskId: string, fileNames: string[]): string[] {
+  return [...fileNames].sort((left, right) => {
+    const leftType = classifyCanonicalArtifact(taskId, left);
+    const rightType = classifyCanonicalArtifact(taskId, right);
+    const leftRank = leftType === null ? Number.MAX_SAFE_INTEGER : (CANONICAL_ARTIFACT_RANK.get(leftType) ?? Number.MAX_SAFE_INTEGER);
+    const rightRank = rightType === null ? Number.MAX_SAFE_INTEGER : (CANONICAL_ARTIFACT_RANK.get(rightType) ?? Number.MAX_SAFE_INTEGER);
+
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+
+    return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
+  });
 }
 
 export function isLogFile(fileName: string): boolean {
@@ -115,6 +186,42 @@ export function buildFileGroups(report: TaskReport): FileGroup[] {
   }
 
   return groups;
+}
+
+export function buildCombinedTurnReviewSection(report: TaskReport, turnId: number): CombinedTurnReviewSection | null {
+  const files = sortByCanonicalArtifactOrder(
+    report.taskId,
+    report.files
+      .filter((file) => readTurnNumber(file.name) === turnId)
+      .map((file) => file.name)
+      .filter((fileName) => classifyCanonicalArtifact(report.taskId, fileName) !== null),
+  ).map((name) => ({
+    name,
+    artifactType: classifyCanonicalArtifact(report.taskId, name)!,
+  }));
+
+  if (!files.length) {
+    return null;
+  }
+
+  return {
+    turnId,
+    files,
+  };
+}
+
+export function buildCombinedTaskReviewSections(report: TaskReport): CombinedTurnReviewSection[] {
+  const turnIds = [...new Set(
+    report.files
+      .map((file) => file.name)
+      .filter((fileName) => classifyCanonicalArtifact(report.taskId, fileName) !== null)
+      .map((fileName) => readTurnNumber(fileName))
+      .filter((turnId): turnId is number => turnId !== null),
+  )].sort((left, right) => left - right);
+
+  return turnIds
+    .map((turnId) => buildCombinedTurnReviewSection(report, turnId))
+    .filter((section): section is CombinedTurnReviewSection => section !== null);
 }
 
 export function resolveReportFileName(reportFiles: TaskOutputFile[], sourceFile: string): string | null {
