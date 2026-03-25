@@ -23,6 +23,7 @@ const REQUIREMENT_NAMING_RULES = {
 };
 const PARAMETER_GROUP_RE = /^[A-Za-z][A-Za-z0-9_$#]*\s*:\s*$/;
 const PARAMETER_LINE_RE = /^[A-Za-z][A-Za-z0-9_$#]*\s*-\s*(?:IN\s+OUT|INOUT|IN|OUT|LOCAL)\s*-\s*.+?\s*--\s*.+$/i;
+const PROMPT_PARAMETER_CAPTURE_RE = /^([A-Za-z][A-Za-z0-9_$#]*)\s*-\s*(IN\s+OUT|INOUT|IN|OUT|LOCAL)\s*-\s*(.+?)\s*--\s*.+$/i;
 const OUTPUT_GROUP_RE = /^[A-Za-z][A-Za-z0-9_$#]*\s*:\s*$/;
 const EXCEPTION_LINE_RE = /^.+\s:\s+.+$/;
 const HTML_TAG_RE = /<\s*\/?\s*(?:a|abbr|article|aside|b|blockquote|body|br|code|div|em|footer|form|h[1-6]|head|header|hr|html|i|img|input|label|li|link|main|meta|nav|ol|p|pre|script|section|small|span|strong|style|sub|sup|table|tbody|td|textarea|th|thead|title|tr|u|ul)\b[^>]*>/i;
@@ -30,7 +31,10 @@ const CUSTOM_EXCEPTION_RE = /\bexp_[a-zA-Z0-9_]+\b/gi;
 const SELECT_INTO_RE = /\bSELECT\b[\s\S]*?\bINTO\b[\s\S]*?;/gi;
 const AGGREGATE_FUNCTION_RE = /\b(COUNT|SUM|AVG|MIN|MAX|LISTAGG)\s*\(/i;
 const TOP_LEVEL_NAMED_UNIT_RE = /\bCREATE\s+(?:OR\s+REPLACE\s+)?(PACKAGE(?!\s+BODY\b)|TRIGGER|TYPE(?!\s+BODY\b)|PROCEDURE|FUNCTION)\s+((?:"?[\w$#]+"?\.)?"?[\w$#]+"?)/gi;
+const TOP_LEVEL_PROGRAM_SIGNATURE_RE = /\bCREATE\s+(?:OR\s+REPLACE\s+)?(PROCEDURE|FUNCTION)\s+((?:"?[\w$#]+"?\.)?"?[\w$#]+"?)\s*(\(([\s\S]*?)\))?\s*(?:RETURN\s+([\w$#.%()",\s]+?))?\s*(?:IS|AS)\b/gi;
+const ROUTINE_IMPLEMENTATION_SIGNATURE_RE = /\b(PROCEDURE|FUNCTION)\s+((?:"?[\w$#]+"?\.)?"?[\w$#]+"?)\s*(\(([\s\S]*?)\))?\s*(?:RETURN\s+([\w$#.%()",\s]+?))?\s*(?:IS|AS)\b/gi;
 const ORDER_BY_CLAUSE_RE = /\bORDER\s+BY\s+([A-Za-z0-9_.$#", ]+(?:\s+(?:ASC|DESC))?(?:\s*,\s*[A-Za-z0-9_.$#", ]+(?:\s+(?:ASC|DESC))?)*)/gi;
+const SINGLE_ROW_LIMIT_RE = /\bFETCH\s+FIRST\s+1\s+ROW(?:S)?\s+ONLY\b|\bROWNUM\s*(?:<=|=|<)\s*1\b/i;
 
 function indexSectionLines(lines) {
   const index = {};
@@ -315,6 +319,110 @@ function isProgramSubheader(line) {
   return Boolean(trimmed) && trimmed.endsWith(':') && !trimmed.includes(' : ');
 }
 
+function extractRequirementProgramNames(lines, index) {
+  const { entries } = parseRequirementEntries(lines, index);
+  return [...new Set(entries.map(([label, name]) => (
+    /^Anonymous Block:$/i.test(label) ? 'ANONYMOUS BLOCK' : normalizeIdentifier(name)
+  )).filter(Boolean))];
+}
+
+function isSortingProgramHeader(line, programNames) {
+  if (!isProgramSubheader(line)) {
+    return false;
+  }
+
+  const header = line.trim().replace(/:\s*$/, '');
+  if (/^Anonymous Block$/i.test(header)) {
+    return programNames.includes('ANONYMOUS BLOCK');
+  }
+
+  return programNames.includes(normalizeIdentifier(header));
+}
+
+function createPromptSortingGroup() {
+  return {
+    lines: [],
+    queryGroups: [],
+    ungroupedLines: [],
+  };
+}
+
+function parsePromptSortingGroups(lines, index) {
+  const body = sectionBody(lines, index, 'sorting_order');
+  const programNames = extractRequirementProgramNames(lines, index);
+  const groups = new Map();
+  let currentProgram = programNames.length === 1 ? programNames[0] : null;
+  let currentQuery = null;
+  let explicitProgramHeaders = 0;
+
+  const ensureGroup = (programName) => {
+    if (!groups.has(programName)) {
+      groups.set(programName, createPromptSortingGroup());
+    }
+    return groups.get(programName);
+  };
+
+  if (currentProgram) {
+    ensureGroup(currentProgram);
+  }
+
+  for (const line of body) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    if (isSortingProgramHeader(trimmed, programNames)) {
+      currentProgram = /^Anonymous Block:$/i.test(trimmed)
+        ? 'ANONYMOUS BLOCK'
+        : normalizeIdentifier(trimmed.replace(/:\s*$/, ''));
+      ensureGroup(currentProgram);
+      currentQuery = null;
+      explicitProgramHeaders += 1;
+      continue;
+    }
+
+    if (isProgramSubheader(trimmed)) {
+      if (!currentProgram && programNames.length === 1) {
+        currentProgram = programNames[0];
+        ensureGroup(currentProgram);
+      }
+
+      if (currentProgram) {
+        currentQuery = {
+          label: trimmed.replace(/:\s*$/, ''),
+          lines: [],
+        };
+        ensureGroup(currentProgram).queryGroups.push(currentQuery);
+        continue;
+      }
+    }
+
+    if (!currentProgram && programNames.length === 1) {
+      currentProgram = programNames[0];
+      ensureGroup(currentProgram);
+    }
+
+    if (!currentProgram) {
+      continue;
+    }
+
+    const group = ensureGroup(currentProgram);
+    group.lines.push(trimmed);
+    if (currentQuery) {
+      currentQuery.lines.push(trimmed);
+    } else {
+      group.ungroupedLines.push(trimmed);
+    }
+  }
+
+  return {
+    programNames,
+    groups,
+    explicitProgramHeaders,
+  };
+}
+
 function validateSortingOrderShape(taskId, turnNumber, lines, index, sourceName) {
   if (index.sorting_order === undefined) {
     return createPass(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Sorting Order Format', 'sorting_optional_absent', sourceName);
@@ -325,8 +433,8 @@ function validateSortingOrderShape(taskId, turnNumber, lines, index, sourceName)
     return createPass(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Sorting Order Format', 'sorting_content_checked_elsewhere', sourceName);
   }
 
-  const hasGroup = body.some((line) => isProgramSubheader(line));
-  if (!hasGroup && countRequirementPrograms(lines, index) !== 1) {
+  const promptSorting = parsePromptSortingGroups(lines, index);
+  if (promptSorting.explicitProgramHeaders === 0 && countRequirementPrograms(lines, index) !== 1) {
     return createFail(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Sorting Order Format', 'missing_sorting_groups', {
       expected: '`Sorting Order:` must group sorting details under program-name headers when multiple programs exist',
       present: `no \`<Program Name>:\` header found in \`Sorting Order:\` of ${sourceName}`,
@@ -401,6 +509,52 @@ function extractSortingClauses(codeText) {
     .filter(Boolean);
 }
 
+function extractSortingExpectations(codeText) {
+  const expectations = [];
+  const routineMatches = [...codeText.matchAll(ROUTINE_IMPLEMENTATION_SIGNATURE_RE)].map((match) => ({
+    programName: normalizeIdentifier(match[2]),
+    index: match.index ?? 0,
+  }));
+
+  if (!routineMatches.length) {
+    return extractSortingClauses(codeText).map((clause, clauseIndex) => ({
+      programName: 'ANONYMOUS BLOCK',
+      queryIndex: clauseIndex + 1,
+      clause,
+    }));
+  }
+
+  for (let index = 0; index < routineMatches.length; index += 1) {
+    const current = routineMatches[index];
+    const next = routineMatches[index + 1];
+    const segment = codeText.slice(current.index, next?.index ?? codeText.length);
+    const clauses = extractSortingClauses(segment);
+    clauses.forEach((clause, clauseIndex) => {
+      expectations.push({
+        programName: current.programName,
+        queryIndex: clauseIndex + 1,
+        clause,
+      });
+    });
+  }
+
+  return expectations;
+}
+
+function groupSortingExpectations(expectations) {
+  const grouped = new Map();
+  for (const expectation of expectations) {
+    const existing = grouped.get(expectation.programName) ?? [];
+    existing.push(expectation);
+    grouped.set(expectation.programName, existing);
+  }
+  return grouped;
+}
+
+function formatSortingExpectation(expectation) {
+  return `${expectation.programName} -> Query ${expectation.queryIndex} -> ORDER BY ${expectation.clause}`;
+}
+
 function extractCustomExceptions(promptText) {
   return [...new Set([...promptText.matchAll(CUSTOM_EXCEPTION_RE)].map((match) => match[0].toUpperCase()))];
 }
@@ -410,7 +564,9 @@ function promptRequiresHandler(promptText, handlerName) {
   if (handlerName === 'WHEN OTHERS') {
     return upper.includes('WHEN OTHERS');
   }
-  return upper.includes(handlerName.toUpperCase());
+  const canonical = handlerName.toUpperCase();
+  const variants = new Set([canonical, canonical.replaceAll('_', ' ')]);
+  return [...variants].some((variant) => upper.includes(variant));
 }
 
 function codeHasHandler(codeText, handlerName) {
@@ -435,6 +591,16 @@ function hasPlausibleNoDataFoundSource(codeText) {
   return [...codeText.matchAll(SELECT_INTO_RE)].some((match) => !AGGREGATE_FUNCTION_RE.test(match[0]));
 }
 
+function hasPlausibleTooManyRowsSource(codeText) {
+  if (/\bRAISE\s+TOO_MANY_ROWS\b/i.test(codeText)) {
+    return true;
+  }
+
+  return [...codeText.matchAll(SELECT_INTO_RE)].some((match) =>
+    !AGGREGATE_FUNCTION_RE.test(match[0]) && !SINGLE_ROW_LIMIT_RE.test(match[0]),
+  );
+}
+
 function promptMarkupFailures(promptText) {
   const failures = [];
   if (HTML_TAG_RE.test(promptText)) {
@@ -457,6 +623,199 @@ function requirementTypeFromLabel(label) {
   if (normalized.includes('TRIGGER')) return 'TRIGGER';
   if (normalized.includes('OBJECT')) return 'OBJECT';
   return null;
+}
+
+function normalizeIdentifier(value) {
+  return String(value ?? '')
+    .split('.')
+    .pop()
+    ?.replaceAll('"', '')
+    .trim()
+    .toUpperCase() ?? '';
+}
+
+function normalizeMode(value) {
+  const normalized = String(value ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+  if (normalized === 'INOUT') {
+    return 'IN OUT';
+  }
+  return normalized || 'IN';
+}
+
+function normalizeDatatype(value) {
+  return String(value ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+function datatypeFamily(value) {
+  const normalized = normalizeDatatype(value);
+  if (!normalized) {
+    return '';
+  }
+  if (/%ROWTYPE\b/.test(normalized)) {
+    return '%ROWTYPE';
+  }
+  if (/%TYPE\b/.test(normalized)) {
+    return '%TYPE';
+  }
+  return normalized.replace(/\(.*\)$/, '').trim();
+}
+
+function datatypesCompatible(promptDatatype, codeDatatype) {
+  const normalizedPrompt = normalizeDatatype(promptDatatype);
+  const normalizedCode = normalizeDatatype(codeDatatype);
+  if (!normalizedPrompt || !normalizedCode) {
+    return true;
+  }
+  if (normalizedPrompt === normalizedCode) {
+    return true;
+  }
+
+  const promptFamily = datatypeFamily(normalizedPrompt);
+  const codeFamily = datatypeFamily(normalizedCode);
+  if (!promptFamily || !codeFamily) {
+    return true;
+  }
+  if (['%TYPE', '%ROWTYPE'].includes(promptFamily) || ['%TYPE', '%ROWTYPE'].includes(codeFamily)) {
+    return true;
+  }
+  return promptFamily === codeFamily;
+}
+
+function splitTopLevelCommaList(text) {
+  const items = [];
+  let depth = 0;
+  let current = '';
+
+  for (const char of String(text ?? '')) {
+    if (char === '(') {
+      depth += 1;
+    } else if (char === ')' && depth > 0) {
+      depth -= 1;
+    }
+
+    if (char === ',' && depth === 0) {
+      if (current.trim()) {
+        items.push(current.trim());
+      }
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) {
+    items.push(current.trim());
+  }
+
+  return items;
+}
+
+function parseCodeParameterList(parameterBlob) {
+  const parameters = [];
+
+  for (const entry of splitTopLevelCommaList(parameterBlob)) {
+    const withoutDefault = entry.split(/\s+(?:DEFAULT|:=)\s+/i)[0]?.trim() ?? '';
+    const match = withoutDefault.match(/^("?[\w$#]+"?)\s+([\s\S]+)$/i);
+    if (!match) {
+      continue;
+    }
+
+    let remainder = match[2].trim();
+    let mode = 'IN';
+    if (/^IN\s+OUT\b/i.test(remainder)) {
+      mode = 'IN OUT';
+      remainder = remainder.replace(/^IN\s+OUT\b/i, '').trim();
+    } else if (/^INOUT\b/i.test(remainder)) {
+      mode = 'IN OUT';
+      remainder = remainder.replace(/^INOUT\b/i, '').trim();
+    } else if (/^OUT\b/i.test(remainder)) {
+      mode = 'OUT';
+      remainder = remainder.replace(/^OUT\b/i, '').trim();
+    } else if (/^IN\b/i.test(remainder)) {
+      mode = 'IN';
+      remainder = remainder.replace(/^IN\b/i, '').trim();
+    }
+
+    if (!remainder) {
+      continue;
+    }
+
+    parameters.push({
+      name: normalizeIdentifier(match[1]),
+      mode,
+      datatype: normalizeDatatype(remainder),
+    });
+  }
+
+  return parameters;
+}
+
+function extractCodeProgramSignatures(codeText) {
+  const signatures = new Map();
+
+  for (const match of codeText.matchAll(TOP_LEVEL_PROGRAM_SIGNATURE_RE)) {
+    const objectType = match[1].toUpperCase();
+    const objectName = normalizeIdentifier(match[2]);
+    const parameterBlob = match[4] ?? '';
+    const returnType = objectType === 'FUNCTION' ? normalizeDatatype(match[5]) : null;
+    signatures.set(objectName, {
+      objectType,
+      parameters: parseCodeParameterList(parameterBlob),
+      returnType,
+    });
+  }
+
+  return signatures;
+}
+
+function parsePromptParameterGroups(lines, index) {
+  const body = sectionBody(lines, index, 'parameters');
+  if (!body.length) {
+    return new Map();
+  }
+
+  const { entries } = parseRequirementEntries(lines, index);
+  const namedPrograms = entries
+    .map(([label, name]) => ({ label, name }))
+    .filter((entry) => requirementTypeFromLabel(entry.label) === 'PROCEDURE' || requirementTypeFromLabel(entry.label) === 'FUNCTION')
+    .map((entry) => normalizeIdentifier(entry.name));
+
+  const grouped = body.some((line) => PARAMETER_GROUP_RE.test(line.trim()));
+  const groups = new Map();
+  let currentProgram = grouped ? null : (namedPrograms.length === 1 ? namedPrograms[0] : null);
+  if (currentProgram) {
+    groups.set(currentProgram, []);
+  }
+
+  for (const line of body) {
+    const trimmed = line.trim();
+    if (PARAMETER_GROUP_RE.test(trimmed)) {
+      currentProgram = normalizeIdentifier(trimmed.replace(/:\s*$/, ''));
+      if (!groups.has(currentProgram)) {
+        groups.set(currentProgram, []);
+      }
+      continue;
+    }
+
+    const match = trimmed.match(PROMPT_PARAMETER_CAPTURE_RE);
+    if (!match || !currentProgram) {
+      continue;
+    }
+
+    const mode = normalizeMode(match[2]);
+    if (mode === 'LOCAL') {
+      continue;
+    }
+
+    groups.get(currentProgram)?.push({
+      name: normalizeIdentifier(match[1]),
+      mode,
+      datatype: normalizeDatatype(match[3]),
+    });
+  }
+
+  return groups;
 }
 
 function validateRequirementEntries(taskId, turnNumber, lines, index, sourceName, codeText, codeSource) {
@@ -525,22 +884,122 @@ function validateRequirementEntries(taskId, turnNumber, lines, index, sourceName
   return results;
 }
 
-function validateSortingOrderContract(taskId, turnNumber, promptText, codeText, sourceName) {
-  const promptUpper = promptText.toUpperCase();
-  const sortingClauses = extractSortingClauses(codeText);
-  if (sortingClauses.length) {
-    const missing = sortingClauses.filter((clause) => !promptUpper.includes(clause));
-    if (!missing.length) {
+function validateParameterContract(taskId, turnNumber, lines, index, codeText, codeSource) {
+  const promptGroups = parsePromptParameterGroups(lines, index);
+  if (!promptGroups.size) {
+    return [];
+  }
+
+  const codeSignatures = extractCodeProgramSignatures(codeText);
+  const results = [];
+
+  for (const [programName, promptParameters] of promptGroups.entries()) {
+    const signature = codeSignatures.get(programName);
+    if (!signature || !promptParameters.length) {
+      continue;
+    }
+
+    const codeParameters = new Map(signature.parameters.map((parameter) => [parameter.name, parameter]));
+    for (const promptParameter of promptParameters) {
+      const item = `Parameter Contract: ${programName}.${promptParameter.name}`;
+      const codeParameter = codeParameters.get(promptParameter.name);
+      if (!codeParameter) {
+        results.push(createFail(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, item, 'missing_parameter_in_code', {
+          expected: `parameter ${promptParameter.name} must exist in the implemented ${signature.objectType.toLowerCase()} signature`,
+          present: `${promptParameter.name} was defined in the prompt but not found in ${programName} within ${codeSource}`,
+          update: `add parameter ${promptParameter.name} to ${programName} or align the prompt contract`,
+          sourceFile: codeSource,
+        }));
+        continue;
+      }
+
+      if (codeParameter.mode !== promptParameter.mode) {
+        results.push(createFail(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, item, 'parameter_mode_mismatch', {
+          expected: `parameter mode must match the prompt contract (${promptParameter.mode})`,
+          present: `${programName}.${promptParameter.name} uses mode ${codeParameter.mode} in ${codeSource}`,
+          update: `change ${promptParameter.name} to mode ${promptParameter.mode} or update the prompt contract`,
+          sourceFile: codeSource,
+        }));
+        continue;
+      }
+
+      if (!datatypesCompatible(promptParameter.datatype, codeParameter.datatype)) {
+        results.push(createFail(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, item, 'parameter_datatype_mismatch', {
+          expected: `parameter datatype must match the prompt contract (${promptParameter.datatype})`,
+          present: `${programName}.${promptParameter.name} uses datatype ${codeParameter.datatype} in ${codeSource}`,
+          update: `change ${promptParameter.name} to datatype ${promptParameter.datatype} or update the prompt contract`,
+          sourceFile: codeSource,
+        }));
+        continue;
+      }
+
+      results.push(createPass(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, item, 'parameter_contract_satisfied', codeSource));
+    }
+  }
+
+  return results;
+}
+
+function validateSortingOrderContract(taskId, turnNumber, lines, index, codeText, sourceName) {
+  const promptSorting = parsePromptSortingGroups(lines, index);
+  const sortingExpectations = extractSortingExpectations(codeText);
+
+  if (sortingExpectations.length) {
+    const groupedExpectations = groupSortingExpectations(sortingExpectations);
+    const failures = [];
+
+    for (const [programName, expectations] of groupedExpectations.entries()) {
+      const promptGroup = promptSorting.groups.get(programName);
+      const groupText = promptGroup?.lines.join('\n').toUpperCase() ?? '';
+
+      if (expectations.length > 1) {
+        const queryGroupCount = promptGroup?.queryGroups.length ?? 0;
+        if (queryGroupCount < expectations.length) {
+          failures.push(
+            `${programName} has ${expectations.length} ordered ${expectations.length === 1 ? 'query' : 'queries'} in SQL, `
+            + `but \`Sorting Order:\` has ${queryGroupCount} query/scenario header(s). `
+            + `Expected: ${expectations.map(formatSortingExpectation).join('; ')}`,
+          );
+        }
+
+        for (let queryIndex = 0; queryIndex < Math.min(queryGroupCount, expectations.length); queryIndex += 1) {
+          const queryLines = promptGroup?.queryGroups[queryIndex]?.lines.join('\n').toUpperCase() ?? '';
+          const expectation = expectations[queryIndex];
+          if (!queryLines.includes(expectation.clause)) {
+            failures.push(`missing sorting clause for ${formatSortingExpectation(expectation)}`);
+          }
+        }
+
+        if (queryGroupCount === 0 && promptGroup && expectations.some((expectation) => !groupText.includes(expectation.clause))) {
+          for (const expectation of expectations) {
+            if (!groupText.includes(expectation.clause)) {
+              failures.push(`missing sorting clause for ${formatSortingExpectation(expectation)}`);
+            }
+          }
+        }
+
+        continue;
+      }
+
+      const [expectation] = expectations;
+      if (!groupText.includes(expectation.clause)) {
+        failures.push(`missing sorting clause for ${formatSortingExpectation(expectation)}`);
+      }
+    }
+
+    if (!failures.length) {
       return createPass(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Sorting Order Contract', 'sorting_clause_present', sourceName);
     }
+
     return createFail(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Sorting Order Contract', 'missing_sorting_clause', {
-      expected: '`Sorting Order:` must list the implemented ORDER BY expressions from the reference SQL',
-      present: `missing sorting clause(s): ${missing.join(', ')}`,
-      update: 'copy the exact ORDER BY columns and directions from the SQL into `Sorting Order:`',
+      expected: '`Sorting Order:` must list each implemented `ORDER BY` expression from the reference SQL, and when a program has multiple ordered queries it must use query/scenario headers in SQL order',
+      present: failures.join(' | '),
+      update: 'group sorting details by program, then by query/scenario (for example `Query 1:` / `Query 2:`), and copy the exact ORDER BY columns and directions under each entry',
       sourceFile: sourceName,
     });
   }
 
+  const promptUpper = lines.join('\n').toUpperCase();
   if (!promptUpper.includes('SORTING ORDER:') || promptUpper.includes('NO SORTING REQUIRED')) {
     return createPass(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, 'Sorting Order Contract', 'no_sorting_marker_present', sourceName);
   }
@@ -707,7 +1166,8 @@ export async function runPromptStructureValidator(taskId, taskDir, metadata) {
     const codeArtifact = await loadTurnTextArtifact(taskDir, 'turn_reference_answer_file', taskId, turnNumber);
     if (codeArtifact.text) {
       results.push(...validateRequirementEntries(taskId, turnNumber, lines, index, promptArtifact.fileName, codeArtifact.text, codeArtifact.fileName));
-      results.push(validateSortingOrderContract(taskId, turnNumber, promptText, codeArtifact.text, promptArtifact.fileName));
+      results.push(...validateParameterContract(taskId, turnNumber, lines, index, codeArtifact.text, codeArtifact.fileName));
+      results.push(validateSortingOrderContract(taskId, turnNumber, lines, index, codeArtifact.text, promptArtifact.fileName));
       results.push(...validatePromptCodeContract(taskId, turnNumber, promptText, codeArtifact.text, codeArtifact.fileName));
 
       if (promptRequiresHandler(promptText, 'NO_DATA_FOUND')) {
@@ -725,6 +1185,27 @@ export async function runPromptStructureValidator(taskId, taskDir, metadata) {
                 update: [
                   !handlerOk ? 'add `WHEN NO_DATA_FOUND THEN ...`' : null,
                   !sourceOk ? 'add a non-aggregate `SELECT ... INTO` or explicit `RAISE NO_DATA_FOUND`' : null,
+                ].filter(Boolean).join('; '),
+                sourceFile: codeArtifact.fileName,
+              }),
+        );
+      }
+
+      if (promptRequiresHandler(promptText, 'TOO_MANY_ROWS')) {
+        const handlerOk = codeHasHandler(codeArtifact.text, 'TOO_MANY_ROWS');
+        const sourceOk = hasPlausibleTooManyRowsSource(codeArtifact.text);
+        results.push(
+          handlerOk && sourceOk
+            ? createPass(validatorName, taskId, turnNumber, 'TOO_MANY_ROWS Contract', 'contract_satisfied', codeArtifact.fileName)
+            : createFail(validatorName, taskId, turnNumber, 'TOO_MANY_ROWS Contract', 'contract_mismatch', {
+                expected: 'prompt-required TOO_MANY_ROWS behavior must have both a handler and a plausible trigger',
+                present: [
+                  !handlerOk ? '`WHEN TOO_MANY_ROWS` handler missing' : null,
+                  !sourceOk ? 'no non-aggregate SELECT ... INTO or explicit raise that can trigger TOO_MANY_ROWS' : null,
+                ].filter(Boolean).join('; '),
+                update: [
+                  !handlerOk ? 'add `WHEN TOO_MANY_ROWS THEN ...`' : null,
+                  !sourceOk ? 'use a non-aggregate SELECT ... INTO without single-row limiting, or explicitly `RAISE TOO_MANY_ROWS`' : null,
                 ].filter(Boolean).join('; '),
                 sourceFile: codeArtifact.fileName,
               }),

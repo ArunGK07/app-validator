@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { createLogger, isBackendDebugEnabled, summarizePayload } from './logger.mjs';
 import {
   fetchBatches,
+  fetchConversation,
   fetchConversations,
   fetchRawConversations,
   fetchTeamMembers,
@@ -92,6 +93,21 @@ app.get('/api/conversations/raw', async (request, response) => {
   try {
     const payload = await fetchRawConversations(request.query, readRuntimeConfig());
     response.json(payload);
+  } catch (error) {
+    sendProxyError(response, error);
+  }
+});
+
+app.get('/api/conversations/:taskId', async (request, response) => {
+  try {
+    const row = await fetchConversation(asPathString(request.params.taskId), readRuntimeConfig());
+
+    if (!row) {
+      response.status(404).json({ message: `Conversation ${asPathString(request.params.taskId)} was not found.` });
+      return;
+    }
+
+    response.json(row);
   } catch (error) {
     sendProxyError(response, error);
   }

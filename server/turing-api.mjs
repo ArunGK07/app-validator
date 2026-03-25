@@ -19,6 +19,18 @@ const COMPLETED_STATUS = 'completed';
 const REVIEWED_ONCE_STATUS = 'reviewed-once';
 const logger = createLogger('turing-api');
 
+const SINGLE_CONVERSATION_JOINS = [
+  'project||id,name,status,projectType,supportsFunctionCalling,supportsWorkflows,supportsMultipleFilesPerTask,jibbleActivity,instructionsLink,readonly,averageHandleTimeMinutes',
+  'batch||id,name,status,projectId,jibbleActivity,maxClaimGoldenTaskAllowed,averageHandleTimeMinutes',
+  'currentUser||id,name,turingEmail,profilePicture,isBlocked',
+  'currentUser.teamLead||id,name,turingEmail,profilePicture,isBlocked',
+  'seed||metadata,turingMetadata',
+  'labels||id,labelId',
+  'labels.label',
+  'variations||id',
+  'project.projectFormStages',
+];
+
 const statusQueryPresets = {
   [ALL_STATUS]: {
     label: 'All',
@@ -297,6 +309,22 @@ export async function fetchConversations(filters, config) {
   return rows;
 }
 
+export async function fetchConversation(taskId, config) {
+  logger.debug('Fetching single conversation', { taskId });
+  const response = await callJsonApi(buildConversationDetailUrl(taskId, config), config);
+  const record = coerceRecord(response);
+
+  if (!Object.keys(record).length) {
+    logger.info('Single conversation payload was empty', { taskId });
+    return null;
+  }
+
+  const normalized = normalizeConversation(record);
+  const rows = await enrichConversationRowsWithCollabLinks([normalized], config);
+  logger.info('Fetched single conversation', { taskId, found: Boolean(rows[0]) });
+  return rows[0] ?? normalized;
+}
+
 export async function fetchSchemaWarmupCandidates(config) {
   const candidates = [];
   const seen = new Set();
@@ -524,6 +552,16 @@ export function buildConversationsUrl(filters, config) {
   });
 
   url.search = params.toString();
+  return url.toString();
+}
+
+export function buildConversationDetailUrl(taskId, config) {
+  const url = new URL(`/api/conversations/${encodeURIComponent(taskId)}`, config.labelingBaseUrl);
+
+  SINGLE_CONVERSATION_JOINS.forEach((joinValue, index) => {
+    url.searchParams.set(`join[${index}]`, joinValue);
+  });
+
   return url.toString();
 }
 

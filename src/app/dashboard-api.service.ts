@@ -1,6 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, catchError, map, throwError } from 'rxjs';
 
 import {
   BatchOption,
@@ -33,6 +33,31 @@ export class DashboardApiService {
 
   getTaskReport(taskId: string): Observable<TaskReport> {
     return this.http.get<TaskReport>(`/api/reports/${encodeURIComponent(taskId)}`);
+  }
+
+  getConversation(taskId: string): Observable<ConversationRow> {
+    return this.http.get<ConversationRow>(`/api/conversations/${encodeURIComponent(taskId)}`).pipe(
+      catchError((error: unknown) => {
+        const status = typeof error === 'object' && error !== null && 'status' in error
+          ? (error as { status?: number }).status
+          : undefined;
+
+        if (status !== 404) {
+          return throwError(() => error);
+        }
+
+        const params = new HttpParams().set('taskId', taskId.trim());
+        return this.http.get<ConversationRow[]>('/api/conversations', { params }).pipe(
+          map((rows) => {
+            const row = rows.find((entry) => entry.taskId === taskId) ?? rows[0];
+            if (!row) {
+              throw error;
+            }
+            return row;
+          }),
+        );
+      }),
+    );
   }
 
   getTaskReportFile(taskId: string, name: string): Observable<TaskReportFile> {

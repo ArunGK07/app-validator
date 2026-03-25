@@ -51,6 +51,7 @@ export async function runTaskWorkflowAction(action, taskId, config, options = {}
   const normalizedTaskId = asTaskId(taskId);
   const taskDir = resolveTaskOutputFolder(normalizedTaskId, config);
   const logsDir = await ensureTaskLogsFolder(taskDir);
+  await clearTaskLogFiles({ logsDir });
   const startedAt = new Date();
   const timestamp = formatTimestampForName(startedAt);
   const logFilePath = join(logsDir, `${definition.logPrefix}-${timestamp}.log`);
@@ -223,11 +224,15 @@ function asTaskId(value) {
 }
 
 function formatTimestampForName(date) {
-  return date.toISOString().replace(/[:.]/g, '-');
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  return `${year}${month}${day}_${hour}${minute}`;
 }
 
 function withStatus(error, statusCode) {
   return Object.assign(error, { statusCode });
 }
-
 

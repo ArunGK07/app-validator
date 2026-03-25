@@ -8,7 +8,6 @@ import { finalize, firstValueFrom } from 'rxjs';
 import { DashboardApiService } from './dashboard-api.service';
 import {
   ConversationRow,
-  TaskFilters,
   ValidationChecklistEntry,
   ValidationFileReport,
   ValidationFileReportIndexEntry,
@@ -152,6 +151,7 @@ export class ReportPageComponent implements OnInit {
         turnStates: Map<string, 'fail' | 'success'>;
       }
     | null = null;
+  private lastAutoFetchKey = '';
 
   taskId = '';
   headerSummaryRow: ConversationRow | null = null;
@@ -176,6 +176,7 @@ export class ReportPageComponent implements OnInit {
   validationReport: ValidationMasterReport | null = null;
   showCurrentFileErrorsOnly = false;
   showFailuresOnly = false;
+  showSummary = false;
   loadingReport = false;
   loadingFile = false;
   loadingFileValidation = false;
@@ -207,6 +208,8 @@ export class ReportPageComponent implements OnInit {
     });
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const taskId = params.get('taskId') ?? '';
+      const fetchToken = params.get('fetch') ?? '';
+      const autoFetchKey = taskId && fetchToken ? `${taskId}:${fetchToken}` : '';
 
       this.taskId = taskId;
       this.error = '';
@@ -248,11 +251,21 @@ export class ReportPageComponent implements OnInit {
       this.lastActionResult = null;
 
       if (!taskId) {
+        this.lastAutoFetchKey = '';
         return;
       }
 
       this.loadTaskSummary(taskId);
       this.loadReport(taskId);
+
+      if (autoFetchKey && this.lastAutoFetchKey !== autoFetchKey) {
+        this.lastAutoFetchKey = autoFetchKey;
+        queueMicrotask(() => {
+          void this.fetchTaskData();
+        });
+      } else if (!autoFetchKey) {
+        this.lastAutoFetchKey = '';
+      }
     });
   }
 
@@ -353,6 +366,13 @@ export class ReportPageComponent implements OnInit {
       return;
     }
 
+    if (action === 'publish') {
+      const confirmed = globalThis.confirm(`Publish task ${this.taskId}? This cannot be undone from the UI.`);
+      if (!confirmed) {
+        return;
+      }
+    }
+
     this.runningAction = action;
     this.actionError = '';
     this.actionMessage = `${this.getActionLabel(action)} started for task ${this.taskId}.`;
@@ -388,8 +408,7 @@ export class ReportPageComponent implements OnInit {
     this.actionMessage = `Fetch started for task ${taskId}.`;
 
     try {
-      const rows = await firstValueFrom(this.api.getConversations(this.buildTaskLookupFilters(taskId)));
-      const row = rows.find((entry) => entry.taskId === taskId);
+      const row = await firstValueFrom(this.api.getConversation(taskId));
       const result = await firstValueFrom(this.api.fetchTaskOutput(taskId, this.buildTaskFetchPayload(row)));
       const generatedCount = result.generatedFiles.length;
       const graphqlNote = result.graphqlErrors ? ` GraphQL returned ${result.graphqlErrors} error(s).` : '';
@@ -1134,7 +1153,7 @@ export class ReportPageComponent implements OnInit {
   }
 
   get showSummarySections(): boolean {
-    return !this.showCurrentFileErrorsOnly;
+    return this.showSummary && !this.showCurrentFileErrorsOnly;
   }
 
   get validationFilterDescription(): string {
@@ -1326,15 +1345,14 @@ export class ReportPageComponent implements OnInit {
 
   private loadTaskSummary(taskId: string): void {
     this.api
-      .getConversations(this.buildTaskLookupFilters(taskId))
+      .getConversation(taskId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (rows) => {
+        next: (row) => {
           if (this.taskId !== taskId) {
             return;
           }
 
-          const row = rows.find((entry) => entry.taskId === taskId) ?? rows[0] ?? null;
           this.headerSummaryRow = row;
           this.headerMetaItems = this.buildHeaderMetaItems(row);
           this.headerRequirementItems = this.buildHeaderRequirementItems(row);
@@ -1632,16 +1650,6 @@ export class ReportPageComponent implements OnInit {
     url.searchParams.set('origin', this.labelingBaseUrl);
     url.searchParams.set('redirect_url', this.getReportTaskHref());
     return url.toString();
-  }
-
-  private buildTaskLookupFilters(taskId: string): TaskFilters {
-
-    return {
-      userId: '',
-      taskIdQuery: taskId,
-      status: 'all',
-      batchId: '',
-    };
   }
 
   private buildTaskFetchPayload(row?: ConversationRow): { promptId?: string; collabLink?: string; metadata?: unknown } {

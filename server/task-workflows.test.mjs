@@ -1,6 +1,6 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -178,7 +178,7 @@ test('runTaskWorkflowAction(validate) writes native validation reports and struc
     assert.equal(result.reports?.artifactAlignment, '_validation/artifactalignment_task_9418.json');
     assert.equal(result.reports?.fileIndex, '_validation/files/index_task_9418.json');
     assert.ok(result.artifacts.length >= 7);
-    assert.match(result.logFile, /_logs[\\\/]validate-/);
+    assert.match(result.logFile, /_logs[\\/]validate-\d{8}_\d{4}\.log$/);
     const masterReport = JSON.parse(await readFile(join(taskDir, '_validation', 'master_validator_task_9418.json'), 'utf8'));
     assert.equal(masterReport.summary.validatorsFailed, 0);
     assert.equal(masterReport.validators.length, 4);
@@ -189,7 +189,7 @@ test('runTaskWorkflowAction(validate) writes native validation reports and struc
   }
 });
 
-test('runTaskWorkflowAction(validate) preserves existing logs and writes the latest validation log', async () => {
+test('runTaskWorkflowAction(validate) clears old logs and writes one readable validation log', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-workflows-'));
   const taskOutputDir = join(root, 'task-output');
   const taskDir = join(taskOutputDir, '9418');
@@ -223,9 +223,11 @@ test('runTaskWorkflowAction(validate) preserves existing logs and writes the lat
       },
     );
 
-    assert.equal(await readFile(staleValidateLog, 'utf8'), 'old validate log');
-    assert.equal(await readFile(stalePublishLog, 'utf8'), 'old publish log');
+    const logFiles = (await readdir(logsDir)).filter((name) => name.toLowerCase().endsWith('.log'));
+
+    assert.deepEqual(logFiles, [basename(result.logFile)]);
     assert.equal(await readFile(retainedPropertiesFile, 'utf8'), 'Cookie=keep\n');
+    assert.match(basename(result.logFile), /^validate-\d{8}_\d{4}\.log$/);
     assert.match(await readFile(result.logFile, 'utf8'), /Validation run completed/);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -351,7 +353,7 @@ test('runTaskWorkflowAction(generate-outputs) returns a failed result and preser
     assert.equal(result.success, false);
     assert.equal(result.exitCode, 1);
     assert.deepEqual(result.command, ['native-generate-outputs']);
-    assert.match(result.logFile, /_logs[\\\/]generate-outputs-/);
+    assert.match(result.logFile, /_logs[\\/]generate-outputs-\d{8}_\d{4}\.log$/);
     assert.match(await readFile(result.logFile, 'utf8'), /Workflow action failed unexpectedly/);
     assert.match(await readFile(result.logFile, 'utf8'), /simulated testcase refresh crash/);
   } finally {
@@ -402,9 +404,4 @@ test('runTaskWorkflowAction(publish) uses the native GraphQL publisher', async (
     await rm(root, { recursive: true, force: true });
   }
 });
-
-
-
-
-
 

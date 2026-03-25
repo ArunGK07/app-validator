@@ -145,12 +145,21 @@ export const VALIDATION_CHECKLIST_CATALOG = [
     description: 'Named requirements must follow the required naming conventions.',
   },
   {
+    checkId: 'prompt.parameter-contract',
+    category: 'prompt-structure',
+    validator: VALIDATOR_NAMES.promptStructure,
+    itemPrefix: 'Parameter Contract:',
+    dynamic: true,
+    ruleIds: ['parameter_contract_satisfied', 'missing_parameter_in_code', 'parameter_mode_mismatch', 'parameter_datatype_mismatch'],
+    description: 'Prompt parameter names, modes, and datatypes must stay aligned with the implemented signature.',
+  },
+  {
     checkId: 'prompt.sorting-order-contract',
     category: 'prompt-structure',
     validator: VALIDATOR_NAMES.promptStructure,
     item: 'Sorting Order Contract',
     ruleIds: ['sorting_clause_present', 'missing_sorting_clause', 'no_sorting_marker_present', 'unexpected_sorting_content_without_order_by'],
-    description: 'Sorting Order must match the implemented SQL ORDER BY behavior.',
+    description: 'Sorting Order must match the implemented SQL ORDER BY behavior, including query/scenario grouping when one program contains multiple ordered queries.',
   },
   {
     checkId: 'prompt.custom-exception-contract',
@@ -168,6 +177,14 @@ export const VALIDATION_CHECKLIST_CATALOG = [
     item: 'NO_DATA_FOUND Contract',
     ruleIds: ['contract_satisfied', 'contract_mismatch'],
     description: 'Prompt-required NO_DATA_FOUND handling must exist and be plausibly triggered.',
+  },
+  {
+    checkId: 'prompt.too-many-rows-contract',
+    category: 'prompt-structure',
+    validator: VALIDATOR_NAMES.promptStructure,
+    item: 'TOO_MANY_ROWS Contract',
+    ruleIds: ['contract_satisfied', 'contract_mismatch'],
+    description: 'Prompt-required TOO_MANY_ROWS handling must exist and be plausibly triggered.',
   },
   {
     checkId: 'prompt.when-others-contract',

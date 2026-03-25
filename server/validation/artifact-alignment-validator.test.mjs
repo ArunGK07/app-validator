@@ -130,7 +130,7 @@ test('runArtifactAlignmentValidator fails on missing program implementation and 
   }
 });
 
-test('runArtifactAlignmentValidator fails when literal output or exception coverage is missing and ignores placeholders', async () => {
+test('runArtifactAlignmentValidator enforces stable label fragments from placeholder-based prompt lines', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-artifact-alignment-'));
   const taskDir = join(root, '31003');
   const metadata = { id: 31003, num_turns: 1 };
@@ -186,9 +186,10 @@ test('runArtifactAlignmentValidator fails when literal output or exception cover
     const results = await runArtifactAlignmentValidator('31003', taskDir, metadata);
 
     assert.ok(results.some((entry) => entry.ruleId === 'missing_output_literal_in_testcase' && entry.status === 'FAIL'));
+    assert.ok(results.some((entry) => entry.item === 'Output Literal Code Coverage: Country Code:' && entry.status === 'FAIL'));
+    assert.ok(results.some((entry) => entry.item === 'Output Literal Test Coverage: Country Code:' && entry.status === 'FAIL'));
     assert.ok(results.some((entry) => entry.ruleId === 'missing_exception_message_in_code' && entry.status === 'FAIL'));
     assert.ok(results.some((entry) => entry.ruleId === 'missing_exception_message_in_testcase' && entry.status === 'FAIL'));
-    assert.equal(results.some((entry) => /country code/i.test(entry.item)), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

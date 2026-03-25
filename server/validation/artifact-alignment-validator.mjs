@@ -15,6 +15,7 @@ const REQUIREMENT_HEADERS = new Map([
 ]);
 const SECTION_HEADERS = /^(Requirements|Parameters|Output|Sorting Order|Exception Handling)\s*:/i;
 const TOP_LEVEL_UNIT_RE = /\bCREATE\s+(?:OR\s+REPLACE\s+)?(PACKAGE(?!\s+BODY\b)|TRIGGER|TYPE(?!\s+BODY\b)|PROCEDURE|FUNCTION)\s+((?:"?[\w$#]+"?\.)?"?[\w$#]+"?)/gi;
+const PLACEHOLDER_TOKEN_RE = /(\[[^\]]+\]|<[^>]+>)/g;
 
 export async function runArtifactAlignmentValidator(taskId, taskDir, metadata) {
   const validatorName = VALIDATOR_NAMES.artifactAlignment;
@@ -231,15 +232,18 @@ function extractPromptLiterals(lines, sections, sectionKey, options = {}) {
         ? trimmed.split(':').slice(1).join(':').trim() || trimmed
         : trimmed;
 
-    if (!isStrictLiteral(candidate)) {
-      continue;
-    }
+    const derivedCandidates = new Set([
+      ...deriveLiteralCandidates(candidate),
+      ...extractStablePlaceholderFragments(trimmed),
+    ]);
 
-    values.push({
-      text: normalizeLiteral(candidate),
-      raw: candidate,
-      line: lineIndex + 1,
-    });
+    for (const derived of derivedCandidates) {
+      values.push({
+        text: normalizeLiteral(derived),
+        raw: derived,
+        line: lineIndex + 1,
+      });
+    }
   }
 
   return dedupeLiterals(values);
@@ -265,6 +269,56 @@ function isStrictLiteral(text) {
     return false;
   }
   return /[A-Za-z]/.test(trimmed);
+}
+
+function deriveLiteralCandidates(text) {
+  const literals = [];
+  if (isStrictLiteral(text)) {
+    literals.push(String(text ?? '').trim());
+  }
+
+  for (const fragment of extractStablePlaceholderFragments(text)) {
+    literals.push(fragment);
+  }
+
+  return [...new Set(literals.map((entry) => normalizeLiteral(entry)).filter(Boolean))];
+}
+
+function extractStablePlaceholderFragments(text) {
+  const raw = String(text ?? '');
+  if (!PLACEHOLDER_TOKEN_RE.test(raw)) {
+    return [];
+  }
+
+  PLACEHOLDER_TOKEN_RE.lastIndex = 0;
+  const fragments = [];
+
+  for (const part of raw.split(PLACEHOLDER_TOKEN_RE)) {
+    if (!part || PLACEHOLDER_TOKEN_RE.test(part)) {
+      PLACEHOLDER_TOKEN_RE.lastIndex = 0;
+      continue;
+    }
+
+    PLACEHOLDER_TOKEN_RE.lastIndex = 0;
+    const normalized = part
+      .replace(/^[|,;/\s]+/, '')
+      .replace(/[|,;/\s]+$/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!isStrictLiteral(normalized)) {
+      continue;
+    }
+
+    const alphaLength = normalized.replace(/[^A-Za-z]/g, '').length;
+    if (alphaLength < 3) {
+      continue;
+    }
+
+    fragments.push(normalized);
+  }
+
+  return fragments;
 }
 
 function dedupeLiterals(values) {

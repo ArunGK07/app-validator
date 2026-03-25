@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildBatchesUrl,
+  buildConversationDetailUrl,
   buildConversationsUrl,
   buildConversationsUrls,
   buildPassthroughUrl,
@@ -13,6 +14,7 @@ import {
   buildSchemaWarmupConversationsUrl,
   buildCurrentUserUrl,
   fetchBatches,
+  fetchConversation,
   fetchConversations,
   fetchTeamMembers,
   fetchRawConversations,
@@ -112,6 +114,21 @@ test('buildBatchesUrl points to the labeling batches endpoint with project filte
   assert.equal(url.searchParams.get('filter[1]'), 'projectId||$eq||57');
   assert.equal(url.searchParams.get('filter[2]'), 'status||ne||archived');
   assert.equal(url.searchParams.get('join[0]'), 'batchStats');
+});
+
+test('buildConversationDetailUrl points to the single conversation endpoint with the required joins', () => {
+  const url = new URL(buildConversationDetailUrl('9419', config));
+
+  assert.equal(url.origin + url.pathname, 'https://labeling-o.turing.com/api/conversations/9419');
+  assert.equal(url.searchParams.get('join[0]'), 'project||id,name,status,projectType,supportsFunctionCalling,supportsWorkflows,supportsMultipleFilesPerTask,jibbleActivity,instructionsLink,readonly,averageHandleTimeMinutes');
+  assert.equal(url.searchParams.get('join[1]'), 'batch||id,name,status,projectId,jibbleActivity,maxClaimGoldenTaskAllowed,averageHandleTimeMinutes');
+  assert.equal(url.searchParams.get('join[2]'), 'currentUser||id,name,turingEmail,profilePicture,isBlocked');
+  assert.equal(url.searchParams.get('join[3]'), 'currentUser.teamLead||id,name,turingEmail,profilePicture,isBlocked');
+  assert.equal(url.searchParams.get('join[4]'), 'seed||metadata,turingMetadata');
+  assert.equal(url.searchParams.get('join[5]'), 'labels||id,labelId');
+  assert.equal(url.searchParams.get('join[6]'), 'labels.label');
+  assert.equal(url.searchParams.get('join[7]'), 'variations||id');
+  assert.equal(url.searchParams.get('join[8]'), 'project.projectFormStages');
 });
 
 test('buildPassthroughUrl preserves the provided query without reshaping it', () => {
@@ -297,6 +314,63 @@ test('fetchRawConversations returns the upstream payload unchanged', async () =>
       data: [{ id: 9462, conversation: { colabLink: 'https://rlhf-v3.turing.com/prompt/c1a69f1e-9b9b-4b9b-8a29-e67bad592a60' } }],
       meta: { page: 1 },
     });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('fetchConversation loads and normalizes a single task record from the detail endpoint', async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    assert.equal(init?.headers?.Cookie, config.cookie);
+
+    if (url.startsWith('https://labeling-o.turing.com/api/conversations/9419?')) {
+      return new Response(
+        JSON.stringify({
+          id: 9419,
+          status: 'labeling',
+          batch: { id: 311, name: 'Batch 311' },
+          currentUser: { name: 'Ada Lovelace' },
+          seed: {
+            metadata: {
+              num_turns: '1',
+              complexity: 'intermediate',
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    if (url === 'https://labeling-o.turing.com/api/reviews?conversationId=9419&join%5B0%5D=conversation') {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              conversation: {
+                colabLink: 'https://rlhf-v3.turing.com/prompt/single-task-link',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    throw new Error('Unexpected URL ' + url);
+  };
+
+  try {
+    const row = await fetchConversation('9419', config);
+
+    assert.equal(row?.taskId, '9419');
+    assert.equal(row?.batch, 'Batch 311');
+    assert.equal(row?.assignedUser, 'Ada Lovelace');
+    assert.equal(row?.turnCount, '1');
+    assert.equal(row?.complexity, 'Intermediate');
+    assert.equal(row?.collabLink, 'https://rlhf-v3.turing.com/prompt/single-task-link');
   } finally {
     global.fetch = originalFetch;
   }

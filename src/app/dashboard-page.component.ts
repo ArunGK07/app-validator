@@ -42,14 +42,13 @@ export class DashboardPageComponent implements OnInit {
   ];
   readonly filtersForm = this.fb.nonNullable.group({
     userId: '',
-    taskIdQuery: '',
     status: 'all',
     batchId: DashboardPageComponent.DEFAULT_BATCH_ID,
   });
+  readonly taskLookupControl = this.fb.nonNullable.control('');
 
   batchOptions: BatchOption[] = [];
   teamMembers: TeamMember[] = [];
-  taskIdOptions: string[] = [];
   rows: ConversationRow[] = [];
   displayRows: ConversationRow[] = [];
   loading = false;
@@ -90,20 +89,20 @@ export class DashboardPageComponent implements OnInit {
     this.message = '';
     this.openMetadataTaskId = null;
 
-    const rawFilters = this.filtersForm.getRawValue() as TaskFilters;
+    const rawFilters = this.filtersForm.getRawValue();
     const filters = {
+      taskIdQuery: '',
       ...rawFilters,
       userId: this.resolveUserFilter(rawFilters.userId),
-    };
+    } satisfies TaskFilters;
 
     this.api
       .getConversations(filters)
       .pipe(finalize(() => (this.loading = false)))
       .subscribe({
         next: (rows) => {
-          this.rows = this.applyTaskIdFilter(rows, filters.taskIdQuery);
+          this.rows = rows;
           this.updateDisplayRows();
-          this.taskIdOptions = this.uniqueTaskIds(this.rows);
           this.message = this.rows.length
             ? `Loaded ${this.rows.length} conversation row${this.rows.length === 1 ? '' : 's'}.`
             : 'No rows matched the current filters.';
@@ -327,6 +326,10 @@ export class DashboardPageComponent implements OnInit {
     return this.loading || this.hasBackgroundTaskProcess;
   }
 
+  isTaskLookupDisabled(): boolean {
+    return !this.taskLookupControl.getRawValue().trim() || this.hasBackgroundTaskProcess;
+  }
+
   isFetchRunningForTask(taskId: string): boolean {
     return this.loadingTaskId === taskId || this.bulkFetchTaskId === taskId;
   }
@@ -340,6 +343,23 @@ export class DashboardPageComponent implements OnInit {
 
     void this.router.navigate(['/report'], {
       queryParams: { taskId },
+    });
+  }
+
+  openTaskLookup(): void {
+    const taskId = this.taskLookupControl.getRawValue().trim();
+    if (!taskId) {
+      this.error = 'Enter a task id to open the task page.';
+      this.message = '';
+      return;
+    }
+
+    this.persistFiltersToSession();
+    this.error = '';
+    this.message = '';
+
+    void this.router.navigate(['/report'], {
+      queryParams: { taskId, fetch: Date.now().toString() },
     });
   }
 
@@ -378,20 +398,6 @@ export class DashboardPageComponent implements OnInit {
         this.error = this.asErrorMessage(error);
       },
     });
-  }
-
-  private applyTaskIdFilter(rows: ConversationRow[], taskIdQuery: string): ConversationRow[] {
-    const query = taskIdQuery.trim().toLowerCase();
-
-    if (!query) {
-      return rows;
-    }
-
-    return rows.filter((row) => row.taskId.toLowerCase().includes(query));
-  }
-
-  private uniqueTaskIds(rows: ConversationRow[]): string[] {
-    return [...new Set(rows.map((row) => row.taskId))].sort((left, right) => left.localeCompare(right));
   }
 
   private updateDisplayRows(): void {
@@ -488,26 +494,30 @@ export class DashboardPageComponent implements OnInit {
   }
 
   private restoreFiltersFromSession(): void {
-    const savedFilters = this.readFiltersFromSession();
-    if (!savedFilters) {
+    const savedState = this.readFiltersFromSession();
+    if (!savedState) {
       return;
     }
 
-    this.filtersForm.patchValue(savedFilters, { emitEvent: false });
+    this.filtersForm.patchValue(savedState.filters, { emitEvent: false });
+    this.taskLookupControl.setValue(savedState.taskLookupValue, { emitEvent: false });
   }
 
   private persistFiltersToSession(): void {
     try {
       sessionStorage.setItem(
         DashboardPageComponent.FILTERS_SESSION_KEY,
-        JSON.stringify(this.filtersForm.getRawValue() as TaskFilters),
+        JSON.stringify({
+          filters: this.filtersForm.getRawValue(),
+          taskLookupValue: this.taskLookupControl.getRawValue(),
+        }),
       );
     } catch {
       // Ignore session storage failures and keep the dashboard usable.
     }
   }
 
-  private readFiltersFromSession(): TaskFilters | null {
+  private readFiltersFromSession(): { filters: { userId: string; status: string; batchId: string }; taskLookupValue: string } | null {
     try {
       const storedValue = sessionStorage.getItem(DashboardPageComponent.FILTERS_SESSION_KEY);
       if (!storedValue) {
@@ -519,15 +529,25 @@ export class DashboardPageComponent implements OnInit {
         return null;
       }
 
-      const stored = parsed as Partial<TaskFilters>;
+      const stored = parsed as {
+        filters?: Partial<TaskFilters>;
+        taskLookupValue?: string;
+        userId?: string;
+        status?: string;
+        batchId?: string;
+      };
+      const filterSource = stored.filters && typeof stored.filters === 'object' ? stored.filters : stored;
+
       return {
-        userId: typeof stored.userId === 'string' ? stored.userId : '',
-        taskIdQuery: typeof stored.taskIdQuery === 'string' ? stored.taskIdQuery : '',
-        status: typeof stored.status === 'string' && stored.status ? stored.status : 'all',
-        batchId:
-          typeof stored.batchId === 'string' && stored.batchId
-            ? stored.batchId
-            : DashboardPageComponent.DEFAULT_BATCH_ID,
+        filters: {
+          userId: typeof filterSource.userId === 'string' ? filterSource.userId : '',
+          status: typeof filterSource.status === 'string' && filterSource.status ? filterSource.status : 'all',
+          batchId:
+            typeof filterSource.batchId === 'string' && filterSource.batchId
+              ? filterSource.batchId
+              : DashboardPageComponent.DEFAULT_BATCH_ID,
+        },
+        taskLookupValue: typeof stored.taskLookupValue === 'string' ? stored.taskLookupValue : '',
       };
     } catch {
       return null;

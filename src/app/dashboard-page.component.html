@@ -6,40 +6,45 @@
     </div>
   </div>
 
-  <form class="filters" [formGroup]="filtersForm">
-    <label>
-      <span>Batch</span>
-      <select formControlName="batchId">
-        <option value="">All batches</option>
-        <option *ngFor="let batch of batchOptions" [value]="batch.id">{{ batch.name }}</option>
-      </select>
-    </label>
+  <div class="filters-bar">
+    <form class="filters" [formGroup]="filtersForm">
+      <label>
+        <span>Batch</span>
+        <select formControlName="batchId">
+          <option value="">All batches</option>
+          <option *ngFor="let batch of batchOptions" [value]="batch.id">{{ batch.name }}</option>
+        </select>
+      </label>
 
-    <label>
-      <span>User</span>
-      <select formControlName="userId">
-        <option value="">All users</option>
-        <option *ngFor="let member of teamMembers" [value]="member.id">
-          {{ member.name }} <ng-container *ngIf="member.email">({{ member.email }})</ng-container>
-        </option>
-      </select>
-    </label>
+      <label>
+        <span>User</span>
+        <select formControlName="userId">
+          <option value="">All users</option>
+          <option *ngFor="let member of teamMembers" [value]="member.id">
+            {{ member.name }} <ng-container *ngIf="member.email">({{ member.email }})</ng-container>
+          </option>
+        </select>
+      </label>
 
-    <label>
-      <span>Task ID</span>
-      <input formControlName="taskIdQuery" type="text" list="task-id-options" placeholder="Type a task id" />
-      <datalist id="task-id-options">
-        <option *ngFor="let option of taskIdOptions" [value]="option"></option>
-      </datalist>
-    </label>
+      <label>
+        <span>Status</span>
+        <select formControlName="status">
+          <option *ngFor="let option of statusOptions" [value]="option.value">{{ option.label }}</option>
+        </select>
+      </label>
+    </form>
 
-    <label>
-      <span>Status</span>
-      <select formControlName="status">
-        <option *ngFor="let option of statusOptions" [value]="option.value">{{ option.label }}</option>
-      </select>
-    </label>
-  </form>
+    <div class="task-lookup">
+      <label class="task-lookup__field">
+        <span>Task ID</span>
+        <input [formControl]="taskLookupControl" type="text" placeholder="Type a task id" />
+      </label>
+
+      <button class="btn btn-primary task-lookup__button" type="button" (click)="openTaskLookup()" [disabled]="isTaskLookupDisabled()">
+        Open & Fetch
+      </button>
+    </div>
+  </div>
 
 </section>
 

@@ -28,8 +28,65 @@
         <p *ngIf="report?.folderPath" class="eyebrow">{{ report?.folderPath }}</p>
       </div>
 
-      <div *ngIf="taskId && !loadingReport && (headerRequirementItems.length || headerRequirementSummary)" class="report-header__summary">
-        <div class="task-summary">
+      <div *ngIf="taskId && !loadingReport && report" class="report-header__aside">
+        <div class="header-actions header-actions--grouped">
+          <div class="review-mode-toggle review-mode-toggle--header" role="tablist" aria-label="Report review mode">
+            <button
+              type="button"
+              class="review-mode-toggle__button"
+              [class.review-mode-toggle__button--active]="reviewMode === 'single'"
+              (click)="selectReviewMode('single')"
+            >
+              Single file
+            </button>
+            <button
+              type="button"
+              class="review-mode-toggle__button"
+              [class.review-mode-toggle__button--active]="reviewMode === 'turn'"
+              (click)="selectReviewMode('turn')"
+            >
+              Turn review
+            </button>
+            <button
+              type="button"
+              class="review-mode-toggle__button"
+              [class.review-mode-toggle__button--active]="reviewMode === 'task'"
+              (click)="selectReviewMode('task')"
+            >
+              Task review
+            </button>
+          </div>
+
+          <div class="header-actions__row">
+            <div class="workflow-actions">
+              <button
+                type="button"
+                class="action-button"
+                [disabled]="isTaskActionDisabled()"
+                (click)="fetchTaskData()"
+              >
+                {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
+              </button>
+              <button
+                *ngFor="let workflow of workflowActions"
+                type="button"
+                class="action-button"
+                [disabled]="isTaskActionDisabled()"
+                (click)="runWorkflowAction(workflow.action)"
+              >
+                {{ isRunningAction(workflow.action) ? workflow.label + '...' : workflow.label }}
+              </button>
+            </div>
+
+            <a routerLink="/" class="link-button">Back to dashboard</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div *ngIf="taskId && !loadingReport && (headerRequirementItems.length || headerRequirementSummary)" class="report-header__full report-header__summary-row">
+      <div class="report-header__summary">
+        <div class="task-summary task-summary--header">
           <div *ngIf="headerRequirementItems.length || headerRequirementSummary" class="task-summary__requirements">
             <ng-container *ngIf="headerRequirementItems.length; else requirementSummaryFallback">
               <div class="task-summary__chips task-summary__chips--requirements">
@@ -39,7 +96,7 @@
                 </span>
               </div>
 
-              <div *ngIf="taskId && !loadingReport && headerMetaItems.length" class="report-header__meta task-summary__chips task-summary__chips--meta task-summary__chips--meta-left">
+              <div *ngIf="taskId && !loadingReport && headerMetaItems.length" class="report-header__meta task-summary__chips task-summary__chips--meta">
                 <span *ngFor="let item of headerMetaItems" class="task-summary__chip">
                   <span class="task-summary__label">{{ item.label }}</span>
                   <span class="task-summary__value">{{ item.value }}</span>
@@ -74,64 +131,11 @@
             {{ group.label }}
           </button>
         </div>
-
-        <div class="header-actions header-actions--grouped">
-          <div class="header-actions__row">
-            <div *ngIf="taskId && !loadingReport" class="workflow-actions">
-              <button
-                type="button"
-                class="action-button"
-                [disabled]="isTaskActionDisabled()"
-                (click)="fetchTaskData()"
-              >
-                {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
-              </button>
-              <button
-                *ngFor="let workflow of workflowActions"
-                type="button"
-                class="action-button"
-                [disabled]="isTaskActionDisabled()"
-                (click)="runWorkflowAction(workflow.action)"
-              >
-                {{ isRunningAction(workflow.action) ? workflow.label + '...' : workflow.label }}
-              </button>
-            </div>
-
-            <a routerLink="/" class="link-button">Back to dashboard</a>
-          </div>
-        </div>
       </div>
     </div>
 
-    <div *ngIf="taskId && !loadingReport && report" class="report-header__full report-header__review-controls">
-      <div class="review-mode-toggle" role="tablist" aria-label="Report review mode">
-        <button
-          type="button"
-          class="review-mode-toggle__button"
-          [class.review-mode-toggle__button--active]="reviewMode === 'single'"
-          (click)="selectReviewMode('single')"
-        >
-          Single file
-        </button>
-        <button
-          type="button"
-          class="review-mode-toggle__button"
-          [class.review-mode-toggle__button--active]="reviewMode === 'turn'"
-          (click)="selectReviewMode('turn')"
-        >
-          Turn review
-        </button>
-        <button
-          type="button"
-          class="review-mode-toggle__button"
-          [class.review-mode-toggle__button--active]="reviewMode === 'task'"
-          (click)="selectReviewMode('task')"
-        >
-          Task review
-        </button>
-      </div>
-
-      <div *ngIf="showSingleFileStrip" class="file-strip-panel file-strip-panel--header">
+    <div *ngIf="taskId && !loadingReport && report && showSingleFileStrip" class="report-header__full report-header__review-controls">
+      <div class="file-strip-panel file-strip-panel--header">
         <div *ngIf="visibleFiles.length; else noFiles" class="file-list file-list--cards">
           <button
             *ngFor="let file of visibleFiles"
@@ -497,6 +501,10 @@
             <div class="validation-panel__title-row">
               <h3>Task Validation Overview</h3>
               <div class="validation-filter-toggles">
+                <label class="validation-filter-toggle">
+                  <input type="checkbox" [(ngModel)]="showSummary" />
+                  <span>Show Summary</span>
+                </label>
                 <label class="validation-filter-toggle">
                   <input type="checkbox" [(ngModel)]="showCurrentFileErrorsOnly" [disabled]="isCombinedReviewMode" />
                   <span>Current file only</span>
