@@ -1,4 +1,4 @@
-﻿<section class="panel panel-filters">
+<section class="panel panel-filters">
   <div class="panel-filters__header">
     <div>
       <p class="section-tag">Turing Workspace</p>
@@ -221,22 +221,14 @@
             <td>{{ row.turnCount }}</td>
             <td>{{ row.complexity }}</td>
             <td>
-              <button class="table-action" type="button" (click)="toggleMetadata(row.taskId)">
-                {{ isMetadataOpen(row.taskId) ? 'Hide Metadata' : 'View Metadata' }}
+              <button class="btn btn-secondary btn-row" type="button" (click)="toggleMetadata(row.taskId)">
+                {{ isMetadataOpen(row.taskId) ? 'Hide metadata' : 'View metadata' }}
               </button>
             </td>
             <td>{{ row.businessStatus }}</td>
             <td>{{ row.assignedUser }}</td>
             <td>
               <div class="row-actions">
-                <button
-                  class="btn btn-primary btn-row"
-                  type="button"
-                  (click)="fetchTask(row)"
-                  [disabled]="isTaskActionDisabled()"
-                >
-                  {{ isFetchRunningForTask(row.taskId) ? 'Fetching...' : 'Fetch Data' }}
-                </button>
                 <button
                   class="btn btn-secondary btn-row"
                   type="button"
@@ -246,20 +238,21 @@
                   {{ isValidateRunningForTask(row.taskId) ? 'Validating...' : 'Validate' }}
                 </button>
                 <button
-                  class="btn btn-secondary btn-row"
+                  class="btn btn-primary btn-row"
                   type="button"
-                  (click)="openReport(row.taskId)"
+                  (click)="fetchTask(row)"
                   [disabled]="isTaskActionDisabled()"
                 >
-                  View Result
+                  {{ isFetchRunningForTask(row.taskId) ? 'Fetching...' : 'Fetch Data' }}
                 </button>
+                <button class="btn btn-secondary btn-row" type="button" (click)="openReport(row.taskId)">Open report</button>
               </div>
             </td>
           </tr>
           <tr *ngIf="isMetadataOpen(row.taskId)" class="metadata-row">
             <td colspan="9">
               <div class="metadata-card">
-                <p class="metadata-card__title">Metadata for Task {{ row.taskId }}</p>
+                <p class="metadata-card__title">Metadata preview</p>
                 <pre>{{ row.metadataPreview }}</pre>
               </div>
             </td>
@@ -271,10 +264,9 @@
 
   <ng-template #emptyState>
     <div class="empty-state">
-      <h3>No task rows yet</h3>
-      <p>Adjust the filters to load live conversations through the local proxy.</p>
+      <p class="section-tag">No results</p>
+      <h3>No tasks to show</h3>
+      <p>Adjust the filters and try again once the backend is available.</p>
     </div>
   </ng-template>
 </section>
-
-
