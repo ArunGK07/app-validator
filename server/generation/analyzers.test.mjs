@@ -277,6 +277,7 @@ test('construct analyzer detects IF ... THEN ... ELSE ... END IF and plain JOIN 
   const constructs = new Set(analyzeConstructs(sql));
 
   assert.ok(constructs.has('IF ... THEN ... ELSE ... END IF'));
+  assert.ok(!constructs.has('IF ... THEN ... END IF'));
   assert.ok(constructs.has('JOIN ... ON ...'));
 });
 

@@ -45,7 +45,7 @@ const RAW_PLSQL_CONSTRUCT_CATALOG = [
   entry('CREATE OR REPLACE MATERIALIZED VIEW ...', /\bCREATE\s+OR\s+REPLACE\s+MATERIALIZED\s+VIEW\b/i),
   entry('IF ... THEN ... ELSIF ... ELSE ... END IF', /\bIF\b[\s\S]{0,500}?\bTHEN\b[\s\S]{0,500}?\bELSIF\b[\s\S]{0,500}?\bELSE\b[\s\S]{0,500}?\bEND\s+IF\b/i),
   entry('IF ... THEN ... ELSE ... END IF', /\bIF\b[\s\S]{0,500}?\bTHEN\b(?:(?!\bELSIF\b)[\s\S]){0,500}?\bELSE\b[\s\S]{0,500}?\bEND\s+IF\b/i),
-  entry('IF ... THEN ... END IF', /\bIF\b[\s\S]{0,500}?\bTHEN\b[\s\S]{0,500}?\bEND\s+IF\b/i),
+  entry('IF ... THEN ... END IF', /\bIF\b[\s\S]{0,500}?\bTHEN\b(?:(?!\bELSIF\b|\bELSE\b)[\s\S]){0,500}?\bEND\s+IF\b/i),
   entry('IF ... THEN ... ELSIF ... END IF', /\bIF\b[\s\S]{0,500}?\bTHEN\b[\s\S]{0,500}?\bELSIF\b(?:(?!\bELSE\b)[\s\S]){0,500}?\bEND\s+IF\b/i),
   entry('CASE ... WHEN ... THEN ... ELSE ... END CASE', /\bCASE\b[\s\S]{0,1200}?\bWHEN\b[\s\S]{0,800}?\bTHEN\b[\s\S]{0,800}?\bELSE\b[\s\S]{0,800}?\bEND\s+CASE\b/i),
   entry('CASE ... WHEN ... END', /\bCASE\b[\s\S]{0,1200}?\bWHEN\b[\s\S]{0,800}?\bTHEN\b[\s\S]{0,800}?\bEND\b(?!\s+CASE\b)/i),
