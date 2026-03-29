@@ -16,6 +16,12 @@ export function analyzeTables(codeText, schema) {
         matched.add(tableLookup[candidate]);
       }
     }
+    for (const match of String(sqlText).matchAll(/\b(?:BEFORE|AFTER|INSTEAD\s+OF)\s+(?:INSERT|UPDATE|DELETE)(?:\s+OR\s+(?:INSERT|UPDATE|DELETE))*\s+ON\s+([A-Z0-9_$#".]+)/gi)) {
+      const candidate = normalizeIdentifier(match[1]).split('.').at(-1);
+      if (tableLookup[candidate]) {
+        matched.add(tableLookup[candidate]);
+      }
+    }
     for (const match of String(sqlText).matchAll(/\b([A-Z0-9_$#"]+)(?:\.([A-Z0-9_$#"]+))?\.[A-Z0-9_$#"]+\s*%\s*(?:TYPE|ROWTYPE)\b/gi)) {
       const candidate = normalizeIdentifier(match[2] || match[1]);
       if (tableLookup[candidate]) {
@@ -23,7 +29,7 @@ export function analyzeTables(codeText, schema) {
       }
     }
   };
-  scan(removeSqlComments(removeStringLiterals(codeText)).toUpperCase());
+  scan(normalizeCodeForAnalysis(codeText).toUpperCase());
   for (const fragment of extractDynamicSqlFragments(codeText)) {
     scan(removeSqlComments(fragment).toUpperCase());
   }
@@ -32,7 +38,7 @@ export function analyzeTables(codeText, schema) {
 
 export function analyzeColumns(codeText, schema) {
   const { database, tableColumns, columnToTables } = loadSchemaColumns(schema);
-  const code = removeSqlComments(removeStringLiterals(codeText));
+  const code = normalizeCodeForAnalysis(codeText);
   const aliasMap = extractTableAliases(code, tableColumns);
   const mentionedTables = new Set(Object.values(aliasMap));
   const matched = new Set();
@@ -46,12 +52,24 @@ export function analyzeColumns(codeText, schema) {
     if (original) matched.add(`${database.toUpperCase()}.${tableName.toUpperCase()}.${original.toLowerCase()}`);
   }
 
+  for (const match of code.matchAll(/:(NEW|OLD)\.\s*([A-Z0-9_$#"]+)\b/gi)) {
+    const tableName = aliasMap[normalizeIdentifier(match[1])];
+    const column = normalizeIdentifier(match[2]);
+    if (!tableName) continue;
+    const original = (tableColumns[tableName] ?? []).find((entry) => normalizeIdentifier(entry) === column);
+    if (original) matched.add(`${database.toUpperCase()}.${tableName.toUpperCase()}.${original.toLowerCase()}`);
+  }
+
   for (const [column, tables] of Object.entries(columnToTables)) {
     const pattern = new RegExp(`(?<![.%])\\b${escapeRegex(column)}\\b(?!\\s*%\\s*(?:TYPE|ROWTYPE)\\b)(?!\\s*\\()`, 'i');
     if (!pattern.test(code)) continue;
     const scoped = tables.filter((table) => mentionedTables.has(table));
     if (tables.length === 1) matched.add(`${database.toUpperCase()}.${tables[0].toUpperCase()}.${column.toLowerCase()}`);
     else if (scoped.length === 1) matched.add(`${database.toUpperCase()}.${scoped[0].toUpperCase()}.${column.toLowerCase()}`);
+  }
+
+  for (const entry of collectUpdateTargetColumns(code, tableColumns, database)) {
+    matched.add(entry);
   }
 
   return [...matched].sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
@@ -64,7 +82,7 @@ export function analyzeConstructs(codeText) {
 
 export function evaluatePlsqlConstructs(codeText) {
   const normalized = buildConstructAnalysisText(codeText);
-  return PLSQL_CONSTRUCT_CATALOG.map((entry) => {
+  const evaluations = PLSQL_CONSTRUCT_CATALOG.map((entry) => {
     const match = entry.pattern.exec(normalized);
     entry.pattern.lastIndex = 0;
 
@@ -78,6 +96,26 @@ export function evaluatePlsqlConstructs(codeText) {
       matchedText: match?.[0] ? collapseWhitespace(match[0]).slice(0, 180) : null,
     };
   });
+
+  const nestedBlock = findNestedBeginEndBlock(normalized);
+  if (nestedBlock) {
+    const nestedEntry = evaluations.find((entry) => entry.label === 'BEGIN ... END (nested block)');
+    if (nestedEntry) {
+      nestedEntry.matched = true;
+      nestedEntry.line = findLineNumber(normalized, nestedBlock.index);
+      nestedEntry.matchedText = collapseWhitespace(nestedBlock.text).slice(0, 180);
+    }
+  }
+
+  const selfJoin = findSelfJoin(normalized);
+  const selfJoinEntry = evaluations.find((entry) => entry.label === 'SELF JOIN');
+  if (selfJoinEntry) {
+    selfJoinEntry.matched = Boolean(selfJoin);
+    selfJoinEntry.line = selfJoin ? findLineNumber(normalized, selfJoin.index) : null;
+    selfJoinEntry.matchedText = selfJoin ? collapseWhitespace(selfJoin.text).slice(0, 180) : null;
+  }
+
+  return evaluations;
 }
 
 export function analyzeReasoningTypes(codeText) {
@@ -89,14 +127,17 @@ export function analyzeReasoningTypes(codeText) {
 
 export function evaluateReasoningTypes(codeText) {
   const normalized = buildConstructAnalysisText(codeText);
-  return PLSQL_REASONING_TYPE_CATALOG.map((entry) => {
+  const original = `${String(codeText)}\n${extractDynamicSqlFragments(codeText).join('\n')}`;
+  const evaluations = PLSQL_REASONING_TYPE_CATALOG.map((entry) => {
     const matches = entry.patterns.map((pattern) => {
-      const match = pattern.exec(normalized);
+      const sourceText = entry.label === 'Root Cause Analysis' ? original : normalized;
+      const match = pattern.exec(sourceText);
       pattern.lastIndex = 0;
       return match;
     });
     const matched = entry.mode === 'any' ? matches.some(Boolean) : matches.every(Boolean);
     const firstMatch = matches.find(Boolean) ?? null;
+    const sourceText = entry.label === 'Root Cause Analysis' ? original : normalized;
 
     return {
       pdfIndex: entry.pdfIndex,
@@ -104,10 +145,12 @@ export function evaluateReasoningTypes(codeText) {
       label: entry.label,
       considered: true,
       matched,
-      line: firstMatch?.index === undefined ? null : findLineNumber(normalized, firstMatch.index),
+      line: firstMatch?.index === undefined ? null : findLineNumber(sourceText, firstMatch.index),
       matchedText: firstMatch?.[0] ? collapseWhitespace(firstMatch[0]).slice(0, 180) : null,
     };
   });
+
+  return evaluations;
 }
 
 function loadSchemaColumns(schema) {
@@ -164,8 +207,95 @@ function extractDynamicSqlFragments(code) {
   return fragments;
 }
 
+function collectUpdateTargetColumns(code, tableColumns, database) {
+  const matched = new Set();
+  const tableNames = Object.keys(tableColumns);
+
+  for (const match of String(code).matchAll(/\bUPDATE\s+([A-Z0-9_$#".]+)(?:\s+(?:AS\s+)?([A-Z0-9_$#"]+))?\s+SET\b([\s\S]*?);/gi)) {
+    const tableOnly = normalizeIdentifier(match[1]).split('.').at(-1);
+    const tableName = tableNames.find((table) => normalizeIdentifier(table) === tableOnly);
+    if (!tableName) continue;
+
+    const statementText = String(match[3] ?? '');
+    for (const columnName of tableColumns[tableName] ?? []) {
+      const pattern = new RegExp(`(?<![.%])\\b${escapeRegex(columnName)}\\b(?!\\s*%\\s*(?:TYPE|ROWTYPE)\\b)(?!\\s*\\()`, 'i');
+      if (pattern.test(statementText)) {
+        matched.add(`${database.toUpperCase()}.${tableName.toUpperCase()}.${columnName.toLowerCase()}`);
+      }
+    }
+  }
+
+  return matched;
+}
+
 function buildConstructAnalysisText(codeText) {
-  return `${removeSqlComments(removeStringLiterals(codeText))}\n${extractDynamicSqlFragments(codeText).join('\n')}`;
+  return `${normalizeCodeForAnalysis(codeText)}\n${extractDynamicSqlFragments(codeText).join('\n')}`;
+}
+
+function findNestedBeginEndBlock(text) {
+  const tokenPattern = /\bBEGIN\b|\bEND\s+IF\b|\bEND\s+LOOP\b|\bEND\s+CASE\b|\bEND\b(?:\s+[A-Z0-9_$#"]+)?\s*;/gi;
+  const beginStack = [];
+
+  for (const match of String(text).matchAll(tokenPattern)) {
+    const token = match[0].toUpperCase().replace(/\s+/g, ' ').trim();
+    if (token === 'BEGIN') {
+      beginStack.push(match.index);
+      if (beginStack.length >= 2) {
+        const blockText = extractNestedBlockText(String(text), match.index);
+        return {
+          index: match.index,
+          text: blockText,
+        };
+      }
+      continue;
+    }
+
+    if (token.startsWith('END IF') || token.startsWith('END LOOP') || token.startsWith('END CASE')) {
+      continue;
+    }
+
+    if (beginStack.length) {
+      beginStack.pop();
+    }
+  }
+
+  return null;
+}
+
+function findSelfJoin(text) {
+  const statements = String(text).split(/;/);
+
+  for (const statement of statements) {
+    const normalizedStatement = collapseWhitespace(statement);
+    if (!/\bFROM\b/i.test(normalizedStatement) || !/\bJOIN\b/i.test(normalizedStatement)) {
+      continue;
+    }
+
+    const fromMatch = /\bFROM\s+([A-Z0-9_$#".]+)/i.exec(normalizedStatement);
+    if (!fromMatch) continue;
+    const fromTable = normalizeIdentifier(fromMatch[1]);
+
+    for (const joinMatch of normalizedStatement.matchAll(/\bJOIN\s+([A-Z0-9_$#".]+)/gi)) {
+      if (normalizeIdentifier(joinMatch[1]) === fromTable) {
+        return {
+          index: text.indexOf(statement),
+          text: statement,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractNestedBlockText(text, beginIndex) {
+  const endMatch = /\bEND\b(?:\s+[A-Z0-9_$#"]+)?\s*;/gi;
+  endMatch.lastIndex = beginIndex;
+  const match = endMatch.exec(text);
+  if (!match) {
+    return text.slice(beginIndex);
+  }
+  return text.slice(beginIndex, match.index + match[0].length);
 }
 
 function removeSqlComments(code) {
@@ -174,6 +304,10 @@ function removeSqlComments(code) {
 
 function removeStringLiterals(code) {
   return String(code).replace(/'(?:[^']|'')*'/g, "__STR__");
+}
+
+function normalizeCodeForAnalysis(code) {
+  return removeStringLiterals(removeSqlComments(code));
 }
 
 function normalizeIdentifier(value) {

@@ -6,11 +6,6 @@ import oracledb from 'oracledb';
 import { getConnectionParamsForTask } from '../schema-db-config.mjs';
 import { formatTaskArtifactName } from '../workspace-config.mjs';
 
-const TESTCASE_BLOCK_RE = new RegExp(
-  '^Test Case\\s+(?<number>\\d+):\\s*\\n(?:(?!^\\s*execution_instructions:\\s*$).*\\n)*?^\\s*execution_instructions:\\s*\\n(?<instructions>.*?)^\\s*execution_result:[ \\t]*(?:\\n)?(?<result>.*?)(?=^\\s*Test Case\\s+\\d+:\\s*|$)',
-  'gms',
-);
-
 export async function refreshTaskTestCases(taskId, taskDir, metadata, _config, dependencies = {}) {
   const updatedFiles = [];
   const logLines = [];
@@ -37,16 +32,42 @@ export async function refreshTaskTestCases(taskId, taskDir, metadata, _config, d
     try {
       const referenceText = await readFile(referencePath, 'utf8').catch(() => '');
       if (referenceText.trim()) {
-        await compileReference(referenceText, connection);
+        try {
+          await compileReference(referenceText, connection);
+        } catch (error) {
+          throw new Error(
+            `Turn ${turnNumber}: reference compile failed in ${formatTaskArtifactName('turn_reference_answer_file', { taskId, turnNumber })}: ${formatErrorMessage(error)}`,
+            { cause: error },
+          );
+        }
       }
 
+      const blocks = parseTestCaseBlocks(original);
       let replaced = false;
-      const updated = await replaceAsync(original, TESTCASE_BLOCK_RE, async (fullMatch, ...args) => {
-        const groups = args.at(-1);
-        const result = await executeInstructions(groups.instructions, connection);
+      let updated = '';
+      let cursor = 0;
+
+      for (const block of blocks) {
+        let result = '';
+        try {
+          result = await executeInstructions(block.instructions, connection);
+        } catch (error) {
+          throw new Error(
+            `Turn ${turnNumber} Test Case ${block.number}: execution failed: ${formatErrorMessage(error)}`,
+            { cause: error },
+          );
+        }
         replaced = true;
-        return fullMatch.replace(/(^\s*execution_result:[ \t]*(?:\n)?)([\s\S]*?)$/m, (_, prefix) => `${prefix}${result.trimEnd()}\n`);
-      });
+        updated += original.slice(cursor, block.resultStart);
+        updated += `\n${result.trimEnd()}\n`;
+        cursor = block.resultEnd;
+      }
+
+      if (replaced) {
+        updated += original.slice(cursor);
+      } else {
+        updated = original;
+      }
 
       if (replaced && updated !== original) {
         await writeFile(testcasePath, updated, 'utf8');
@@ -94,8 +115,13 @@ async function closeExecutor(executor, connection) {
 async function defaultCompileReference(referenceText, connection) {
   const executor = createExecutor(connection);
   try {
-    for (const statement of splitSqlStatements(referenceText)) {
-      await executor.execute(statement);
+    const statements = splitSqlStatements(referenceText);
+    for (const [index, statement] of statements.entries()) {
+      try {
+        await executor.execute(statement);
+      } catch (error) {
+        throw new Error(`statement ${index + 1} failed near "${previewSql(statement)}": ${formatErrorMessage(error)}`, { cause: error });
+      }
     }
     await connection.commit();
   } finally {
@@ -108,8 +134,14 @@ async function defaultExecuteInstructions(instructions, connection) {
   const output = [];
   try {
     await executor.execute('BEGIN DBMS_OUTPUT.ENABLE(NULL); END;');
-    for (const statement of splitSqlStatements(instructions)) {
-      const result = await executor.execute(statement);
+    const statements = splitSqlStatements(instructions);
+    for (const [index, statement] of statements.entries()) {
+      let result;
+      try {
+        result = await executor.execute(statement);
+      } catch (error) {
+        throw new Error(`statement ${index + 1} failed near "${previewSql(statement)}": ${formatErrorMessage(error)}`, { cause: error });
+      }
       const rows = await extractRows(executor, result);
       output.push(...rows.map((row) => normalizeRow(row).map((value) => String(value ?? 'NULL')).join(' | ')));
       output.push(...(await drainDbmsOutput(executor)));
@@ -145,6 +177,14 @@ async function extractRows(executor, result) {
 
 function normalizeRow(row) {
   return Array.isArray(row) ? row : [row];
+}
+
+function previewSql(statement) {
+  return String(statement).replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
+function formatErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function drainDbmsOutput(executor) {
@@ -214,21 +254,71 @@ function splitSqlStatements(source) {
   return statements;
 }
 
-async function replaceAsync(input, regex, replacer) {
-  const matches = [...input.matchAll(regex)];
-  if (!matches.length) {
-    return input;
+function parseTestCaseBlocks(source) {
+  const normalized = String(source).replace(/\r/g, '');
+  const blockStarts = [...normalized.matchAll(/^Test Case\s+(?<number>\d+):\s*$/gm)];
+  if (!blockStarts.length) {
+    return [];
   }
 
-  let result = '';
-  let cursor = 0;
-  for (const match of matches) {
-    result += input.slice(cursor, match.index);
-    result += await replacer(...match, match.groups ?? {});
-    cursor = match.index + match[0].length;
+  const blocks = [];
+
+  for (let index = 0; index < blockStarts.length; index += 1) {
+    const match = blockStarts[index];
+    const blockStart = match.index ?? 0;
+    const blockEnd = blockStarts[index + 1]?.index ?? normalized.length;
+    const blockText = normalized.slice(blockStart, blockEnd);
+    const lines = blockText.split('\n');
+    let offset = 0;
+    let instructionsLine = -1;
+    let instructionsInline = '';
+    let resultLine = -1;
+    let resultPrefixLength = 0;
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex];
+      const instructionsMatch = line.match(/^(\s*execution_instructions:\s*)(.*)$/i);
+      if (instructionsMatch) {
+        instructionsLine = lineIndex;
+        instructionsInline = instructionsMatch[2] ?? '';
+      }
+      const resultMatch = line.match(/^(\s*execution_result:\s*)(.*)$/i);
+      if (resultMatch) {
+        resultLine = lineIndex;
+        resultPrefixLength = resultMatch[1].length;
+        break;
+      }
+    }
+
+    if (instructionsLine === -1 || resultLine === -1 || resultLine < instructionsLine) {
+      continue;
+    }
+
+    const lineOffsets = [];
+    offset = 0;
+    for (const line of lines) {
+      lineOffsets.push(offset);
+      offset += line.length + 1;
+    }
+
+    const instructionParts = [];
+    if (instructionsInline.trim()) {
+      instructionParts.push(instructionsInline);
+    }
+    for (let lineIndex = instructionsLine + 1; lineIndex < resultLine; lineIndex += 1) {
+      instructionParts.push(lines[lineIndex]);
+    }
+
+    const resultLineStart = blockStart + lineOffsets[resultLine];
+    blocks.push({
+      number: match.groups?.number ?? '',
+      instructions: instructionParts.join('\n').trimEnd(),
+      resultStart: resultLineStart + resultPrefixLength,
+      resultEnd: blockEnd,
+    });
   }
-  result += input.slice(cursor);
-  return result;
+
+  return blocks;
 }
 
 

@@ -83,6 +83,18 @@ export function getConnectionParamsForTask(metadata, env = process.env) {
   };
 }
 
+export function supportsOracleSchemaExtraction(routing) {
+  if (!routing?.schemaName) {
+    return false;
+  }
+
+  if (routing.profile === 'bigquery_public_data') {
+    return true;
+  }
+
+  return /^[A-Za-z][A-Za-z0-9_$#]*$/u.test(String(routing.schemaName).trim());
+}
+
 function profileEnvPrefix(profile) {
   return `ORACLE_${profile.toUpperCase()}`;
 }

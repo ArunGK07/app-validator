@@ -414,7 +414,8 @@ function buildLiteralCoverageResults({
 }) {
   const results = [];
   const codeSearch = findLiteralOccurrence(codeText, literal.text);
-  const testcaseSearch = findLiteralOccurrenceInTestcases(testcaseBlocks, literal.text);
+  const skipTestcaseCoverage = shouldSkipLiteralTestcaseCoverage(itemPrefix, literal.text);
+  const testcaseSearch = skipTestcaseCoverage ? { skipped: true } : findLiteralOccurrenceInTestcases(testcaseBlocks, literal.text);
   const codeItem = `${itemPrefix} Code Coverage: ${literal.raw}`;
   const testcaseItem = `${itemPrefix} Test Coverage: ${literal.raw}`;
 
@@ -430,7 +431,9 @@ function buildLiteralCoverageResults({
     results.push(createPass(validatorName, taskId, turnNumber, codeItem, codeRuleId, codeFile));
   }
 
-  if (!testcaseSearch) {
+  if (skipTestcaseCoverage) {
+    results.push(createPass(validatorName, taskId, turnNumber, testcaseItem, 'testcase_coverage_not_required', testcaseFile));
+  } else if (!testcaseSearch) {
     results.push(createFail(validatorName, taskId, turnNumber, testcaseItem, testcaseMissingRuleId, {
       expected: testcaseExpectation,
       present: `\`${literal.raw}\` from the prompt was not found in any testcase execution result in ${testcaseFile}`,
@@ -443,6 +446,14 @@ function buildLiteralCoverageResults({
   }
 
   return results;
+}
+
+function shouldSkipLiteralTestcaseCoverage(itemPrefix, literalText) {
+  if (itemPrefix !== 'Exception Message') {
+    return false;
+  }
+
+  return normalizeLiteral(literalText).toUpperCase() === 'UNEXPECTED ERROR OCCURRED';
 }
 
 function findProgramCoverageInTestcases(testcaseBlocks, programName) {

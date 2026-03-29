@@ -7,12 +7,14 @@ import assert from 'node:assert/strict';
 import {
   buildBatchesUrl,
   buildConversationDetailUrl,
+  buildConversationEditUrl,
   buildConversationsUrl,
   buildConversationsUrls,
   buildPassthroughUrl,
   buildReviewsUrl,
   buildSchemaWarmupConversationsUrl,
   buildCurrentUserUrl,
+  editConversation,
   fetchBatches,
   fetchConversation,
   fetchConversations,
@@ -131,6 +133,36 @@ test('buildConversationDetailUrl points to the single conversation endpoint with
   assert.equal(url.searchParams.get('join[8]'), 'project.projectFormStages');
 });
 
+
+test('buildConversationEditUrl points to the conversation edit endpoint', () => {
+  assert.equal(buildConversationEditUrl('15708', config), 'https://labeling-o.turing.com/api/conversations/15708/edit');
+});
+
+test('editConversation posts to the upstream edit endpoint and forwards the bearer token when available', async () => {
+  const originalFetch = global.fetch;
+  const requests = [];
+
+  global.fetch = async (input, init) => {
+    requests.push({ url: String(input), init });
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const result = await editConversation('15708', {
+      ...config,
+      cookie: 'cookie=value; oracle_access_token=test-token',
+    });
+
+    assert.deepEqual(result, {});
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, 'https://labeling-o.turing.com/api/conversations/15708/edit');
+    assert.equal(requests[0].init?.method, 'POST');
+    assert.equal(requests[0].init?.headers?.Cookie, 'cookie=value; oracle_access_token=test-token');
+    assert.equal(requests[0].init?.headers?.Authorization, 'Bearer test-token');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
 test('buildPassthroughUrl preserves the provided query without reshaping it', () => {
   const url = new URL(
     buildPassthroughUrl(

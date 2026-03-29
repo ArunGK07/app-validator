@@ -7,6 +7,7 @@ import {
   metadataBool,
   parseReasoningTypes,
 } from './common.mjs';
+import { analyzeConstructs, analyzeReasoningTypes } from '../generation/analyzers.mjs';
 
 const SQLERRM_RE = /\bSQLERRM\b/gi;
 const NON_DETERMINISTIC_TIME_SOURCE_RE = /\b(?:SYSDATE|SYSTIMESTAMP|CURRENT_DATE|CURRENT_TIMESTAMP|LOCALTIMESTAMP)\b/gi;
@@ -277,6 +278,95 @@ async function validateAuxiliaryArtifacts(taskId, taskDir, turnNumber) {
 
   return results;
 }
+
+function parseGeneratedListArtifact(text) {
+  const normalized = String(text ?? '').trim();
+  if (!normalized || /^\[(?:NO|No)\b.*\]$/i.test(normalized)) {
+    return [];
+  }
+
+  return normalized
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/,\s*$/, ''))
+    .filter(Boolean);
+}
+
+function formatArtifactList(values) {
+  return values.length ? values.join(', ') : '[none]';
+}
+
+function compareArtifactLists(taskId, turnNumber, item, sourceFile, actual, expected) {
+  const validatorName = VALIDATOR_NAMES.plsqlProgram;
+  const normalizedActual = actual.map((entry) => String(entry).trim());
+  const normalizedExpected = expected.map((entry) => String(entry).trim());
+  const actualSet = new Set(normalizedActual.map((entry) => entry.toUpperCase()));
+  const expectedSet = new Set(normalizedExpected.map((entry) => entry.toUpperCase()));
+
+  const overclaimed = normalizedActual.filter((entry) => !expectedSet.has(entry.toUpperCase()));
+  const underclaimed = normalizedExpected.filter((entry) => !actualSet.has(entry.toUpperCase()));
+  const orderingMatches =
+    overclaimed.length === 0
+    && underclaimed.length === 0
+    && normalizedActual.length === normalizedExpected.length
+    && normalizedActual.every((entry, index) => entry === normalizedExpected[index]);
+
+  if (!overclaimed.length && !underclaimed.length && orderingMatches) {
+    return [createPass(validatorName, taskId, turnNumber, item, 'artifact_semantics_match', sourceFile)];
+  }
+
+  const parts = [];
+  if (overclaimed.length) {
+    parts.push(`overclaimed: ${formatArtifactList(overclaimed)}`);
+  }
+  if (underclaimed.length) {
+    parts.push(`underclaimed: ${formatArtifactList(underclaimed)}`);
+  }
+  if (!overclaimed.length && !underclaimed.length && !orderingMatches) {
+    parts.push(`order/content formatting differs from analyzer output: ${formatArtifactList(normalizedActual)}`);
+  }
+
+  return [createFail(validatorName, taskId, turnNumber, item, 'artifact_semantics_mismatch', {
+    expected: `artifact contents must exactly match analyzer output: ${formatArtifactList(normalizedExpected)}`,
+    present: parts.join('; '),
+    update: 'rerun generate-outputs or correct the artifact so it exactly matches the analyzer output for the current reference answer',
+    sourceFile,
+  })];
+}
+
+async function validateGeneratedAnalyzerArtifacts(taskId, taskDir, turnNumber, codeText) {
+  const reasoningArtifact = await loadTurnTextArtifact(taskDir, 'turn_reasoning_types_file', taskId, turnNumber);
+  const constructsArtifact = await loadTurnTextArtifact(taskDir, 'turn_plsql_constructs_file', taskId, turnNumber);
+  const results = [];
+
+  if (reasoningArtifact.text) {
+    results.push(
+      ...compareArtifactLists(
+        taskId,
+        turnNumber,
+        'Reasoning Types Artifact Semantics',
+        reasoningArtifact.fileName,
+        parseGeneratedListArtifact(reasoningArtifact.text),
+        analyzeReasoningTypes(codeText),
+      ),
+    );
+  }
+
+  if (constructsArtifact.text) {
+    results.push(
+      ...compareArtifactLists(
+        taskId,
+        turnNumber,
+        'PL/SQL Constructs Artifact Semantics',
+        constructsArtifact.fileName,
+        parseGeneratedListArtifact(constructsArtifact.text),
+        analyzeConstructs(codeText),
+      ),
+    );
+  }
+
+  return results;
+}
+
 function validateRequiredConstructs(taskId, turnPayloads, metadata) {
   const validatorName = VALIDATOR_NAMES.plsqlProgram;
   const results = [];
@@ -522,6 +612,7 @@ export async function runPlsqlProgramValidator(taskId, taskDir, metadata) {
 
     turnPayloads.push({ turnNumber, sourceName: codeArtifact.fileName, codeText: codeArtifact.text });
     results.push(...validateTurnCode(taskId, turnNumber, codeArtifact.text, codeArtifact.fileName));
+    results.push(...await validateGeneratedAnalyzerArtifacts(taskId, taskDir, turnNumber, codeArtifact.text));
 
     const promptArtifact = await loadTurnTextArtifact(taskDir, 'turn_user_file', taskId, turnNumber);
     if (promptArtifact.text) {

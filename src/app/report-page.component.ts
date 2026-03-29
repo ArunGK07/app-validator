@@ -185,6 +185,7 @@ export class ReportPageComponent implements OnInit {
   actionError = '';
   actionMessage = '';
   loadingFetch = false;
+  editingConversation = false;
   runningAction: TaskWorkflowAction | null = null;
   lastActionResult: TaskWorkflowActionResult | null = null;
   editableContent = '';
@@ -247,6 +248,7 @@ export class ReportPageComponent implements OnInit {
       this.actionError = '';
       this.actionMessage = '';
       this.loadingFetch = false;
+      this.editingConversation = false;
       this.runningAction = null;
       this.lastActionResult = null;
 
@@ -366,35 +368,102 @@ export class ReportPageComponent implements OnInit {
       return;
     }
 
+    const taskId = this.taskId;
+    this.runningAction = action;
+    this.actionError = '';
+
     if (action === 'publish') {
-      const confirmed = globalThis.confirm(`Publish task ${this.taskId}? This cannot be undone from the UI.`);
+      this.actionMessage = `Checking status for task ${taskId} before publish...`;
+
+      try {
+        const row = await this.refreshTaskSummary(taskId);
+
+        if (this.taskId !== taskId) {
+          this.runningAction = null;
+          return;
+        }
+
+        if (this.isPublishBlocked(row)) {
+          this.actionMessage = '';
+          this.actionError = `Task ${taskId} is already in Completed status and cannot be published.`;
+          this.runningAction = null;
+          return;
+        }
+      } catch (error) {
+        if (this.taskId === taskId) {
+          this.actionMessage = '';
+          this.actionError = this.asErrorMessage(error);
+          this.runningAction = null;
+        }
+        return;
+      }
+
+      const confirmed = globalThis.confirm(`Publish task ${taskId}? This cannot be undone from the UI.`);
       if (!confirmed) {
+        if (this.taskId === taskId) {
+          this.actionMessage = '';
+          this.runningAction = null;
+        }
         return;
       }
     }
 
-    this.runningAction = action;
-    this.actionError = '';
-    this.actionMessage = `${this.getActionLabel(action)} started for task ${this.taskId}.`;
+    this.actionMessage = `${this.getActionLabel(action)} started for task ${taskId}.`;
 
     this.api
-      .runTaskWorkflowAction(this.taskId, action)
-      .pipe(finalize(() => (this.runningAction = null)))
+      .runTaskWorkflowAction(taskId, action)
+      .pipe(finalize(() => {
+        if (this.taskId === taskId) {
+          this.runningAction = null;
+        }
+      }))
       .subscribe({
         next: (result) => {
           this.lastActionResult = result;
           void this.loadValidationReportFromAction(result);
+          this.actionError = result.success
+            ? ''
+            : (result.stderrTail || `${this.getActionLabel(action)} failed for task ${taskId}. Check ${result.logFile}.`);
           this.actionMessage = result.success
-            ? `${this.getActionLabel(action)} completed for task ${this.taskId}.`
+            ? `${this.getActionLabel(action)} completed for task ${taskId}.`
             : `${this.getActionLabel(action)} finished with exit code ${result.exitCode}.`;
 
-          this.loadReport(this.taskId, { preferredFileName: result.logFile });
+          this.loadReport(taskId, { preferredFileName: result.logFile });
         },
         error: (error: unknown) => {
           this.actionError = this.asErrorMessage(error);
-          this.loadReport(this.taskId);
+          this.loadReport(taskId);
         },
       });
+  }
+
+  async editConversation(): Promise<void> {
+    if (!this.taskId || this.isTaskActionDisabled()) {
+      return;
+    }
+
+    const taskId = this.taskId;
+    this.editingConversation = true;
+    this.actionError = '';
+    this.actionMessage = `Opening edit flow for task ${taskId}...`;
+
+    try {
+      await firstValueFrom(this.api.editConversation(taskId));
+
+      if (this.taskId !== taskId) {
+        return;
+      }
+
+      globalThis.location.reload();
+    } catch (error) {
+      if (this.taskId === taskId) {
+        this.actionError = this.asErrorMessage(error);
+      }
+    } finally {
+      if (this.taskId === taskId) {
+        this.editingConversation = false;
+      }
+    }
   }
 
   async fetchTaskData(): Promise<void> {
@@ -439,11 +508,15 @@ export class ReportPageComponent implements OnInit {
   }
 
   isTaskActionDisabled(): boolean {
-    return this.loadingFetch || !!this.runningAction;
+    return this.loadingFetch || this.editingConversation || !!this.runningAction;
   }
 
   getActionLabel(action: TaskWorkflowAction): string {
     return this.workflowActions.find((entry) => entry.action === action)?.label ?? action;
+  }
+
+  get shouldShowEditConversationButton(): boolean {
+    return this.isPublishBlocked(this.headerSummaryRow);
   }
 
   private getSelectionKey(name: string): string {
@@ -1020,6 +1093,7 @@ export class ReportPageComponent implements OnInit {
         items: [
           { label: 'Runtime', value: this.lastActionResult.command.join(' ') || 'native-validation' },
           { label: 'Working Directory', value: this.lastActionResult.workingDirectory || 'N/A' },
+          ...(this.lastActionResult.stderrTail ? [{ label: 'Error', value: this.lastActionResult.stderrTail, tone: 'warn' as const }] : []),
           { label: 'Artifacts', value: this.lastActionResult.artifacts.length ? this.lastActionResult.artifacts.join(', ') : 'None' },
           { label: 'Reports', value: this.lastActionResult.reports ? Object.values(this.lastActionResult.reports).join(', ') : 'None' },
         ],
@@ -1353,22 +1427,46 @@ export class ReportPageComponent implements OnInit {
             return;
           }
 
-          this.headerSummaryRow = row;
-          this.headerMetaItems = this.buildHeaderMetaItems(row);
-          this.headerRequirementItems = this.buildHeaderRequirementItems(row);
-          this.headerRequirementSummary = this.buildHeaderRequirementSummary(row);
+          this.applyHeaderSummaryRow(row);
         },
         error: () => {
           if (this.taskId !== taskId) {
             return;
           }
 
-          this.headerSummaryRow = null;
-          this.headerMetaItems = [];
-          this.headerRequirementItems = [];
-          this.headerRequirementSummary = '';
+          this.clearHeaderSummary();
         },
       });
+  }
+
+  private async refreshTaskSummary(taskId: string): Promise<ConversationRow> {
+    const row = await firstValueFrom(this.api.getConversation(taskId));
+
+    if (this.taskId === taskId) {
+      this.applyHeaderSummaryRow(row);
+    }
+
+    return row;
+  }
+
+  private applyHeaderSummaryRow(row: ConversationRow): void {
+    this.headerSummaryRow = row;
+    this.headerMetaItems = this.buildHeaderMetaItems(row);
+    this.headerRequirementItems = this.buildHeaderRequirementItems(row);
+    this.headerRequirementSummary = this.buildHeaderRequirementSummary(row);
+  }
+
+  private clearHeaderSummary(): void {
+    this.headerSummaryRow = null;
+    this.headerMetaItems = [];
+    this.headerRequirementItems = [];
+    this.headerRequirementSummary = '';
+  }
+
+  private isPublishBlocked(row: ConversationRow | null): boolean {
+    const status = row?.status?.trim().toLowerCase() ?? '';
+    const businessStatus = row?.businessStatus?.trim().toLowerCase() ?? '';
+    return status === 'completed' || businessStatus === 'completed';
   }
 
   private buildHeaderMetaItems(row: ConversationRow | null): HeaderMetaItem[] {

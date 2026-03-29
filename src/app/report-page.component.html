@@ -76,6 +76,15 @@
               >
                 {{ isRunningAction(workflow.action) ? workflow.label + '...' : workflow.label }}
               </button>
+              <button
+                *ngIf="shouldShowEditConversationButton"
+                type="button"
+                class="action-button"
+                [disabled]="isTaskActionDisabled()"
+                (click)="editConversation()"
+              >
+                {{ editingConversation ? 'Opening Edit...' : 'Edit Task' }}
+              </button>
             </div>
 
             <a routerLink="/" class="link-button">Back to dashboard</a>

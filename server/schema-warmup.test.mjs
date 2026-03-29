@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { warmSchemaCache } from './schema-warmup.mjs';
@@ -144,5 +144,52 @@ test('warmSchemaCache skips invalid bigquery placeholder candidates', async () =
   assert.equal(result.generatedCount, 1);
   assert.equal(result.failedCount, 0);
 });
+test('warmSchemaCache skips spider candidates with schema names unsupported by the Oracle extractor', async () => {
+  const generated = [];
 
+  const result = await warmSchemaCache(
+    {
+      cookie: 'cookie=value',
+    },
+    {
+      fetchSchemaCandidates: async () => [
+        {
+          metadata: {
+            dataset: 'Spider 2.0-Lite',
+            database: 'Db-IMDB',
+          },
+          schemaName: 'Db-IMDB',
+          profile: 'spider_2_lite',
+        },
+        {
+          metadata: {
+            dataset: 'Spider 2.0-Lite',
+            database: 'sqlite-sakila',
+          },
+          schemaName: 'sqlite-sakila',
+          profile: 'spider_2_lite',
+        },
+        {
+          metadata: {
+            dataset: 'Spider 2.0-Lite',
+            database: 'GNOMAD',
+          },
+          schemaName: 'GNOMAD',
+          profile: 'spider_2_lite',
+        },
+      ],
+      generateSharedSchemaArtifact: async (metadata) => {
+        generated.push(`${metadata.dataset}::${metadata.database}`);
+        return {
+          source: 'database',
+        };
+      },
+    },
+  );
 
+  assert.deepEqual(generated, ['Spider 2.0-Lite::GNOMAD']);
+  assert.equal(result.status, 'completed');
+  assert.equal(result.candidateCount, 1);
+  assert.equal(result.generatedCount, 1);
+  assert.equal(result.failedCount, 0);
+});

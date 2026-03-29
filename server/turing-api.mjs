@@ -1,4 +1,4 @@
-﻿import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve as pathResolve, relative as pathRelative } from 'node:path';
 import { URL, URLSearchParams } from 'node:url';
 
@@ -325,6 +325,25 @@ export async function fetchConversation(taskId, config) {
   return rows[0] ?? normalized;
 }
 
+export async function editConversation(taskId, config, payload = {}) {
+  const authorizationToken = extractOracleAccessToken(config.cookie);
+  logger.debug('Editing conversation', {
+    taskId,
+    payload,
+    hasAuthorizationToken: Boolean(authorizationToken),
+  });
+  const response = await callJsonApi(buildConversationEditUrl(taskId, config), config, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authorizationToken ? { Authorization: `Bearer ${authorizationToken}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  logger.info('Edited conversation', { taskId });
+  return response;
+}
+
 export async function fetchSchemaWarmupCandidates(config) {
   const candidates = [];
   const seen = new Set();
@@ -563,6 +582,10 @@ export function buildConversationDetailUrl(taskId, config) {
   });
 
   return url.toString();
+}
+
+export function buildConversationEditUrl(taskId, config) {
+  return new URL(`/api/conversations/${encodeURIComponent(taskId)}/edit`, config.labelingBaseUrl).toString();
 }
 
 export function buildPassthroughUrl(pathname, query, baseUrl) {
@@ -1113,6 +1136,26 @@ function readNestedValue(source, path) {
   return current;
 }
 
+function extractOracleAccessToken(cookieHeader) {
+  if (!cookieHeader || typeof cookieHeader !== 'string') {
+    return '';
+  }
+
+  const parts = cookieHeader.split(';');
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+
+    if (!trimmed.toLowerCase().startsWith('oracle_access_token=')) {
+      continue;
+    }
+
+    return trimmed.slice('oracle_access_token='.length).trim();
+  }
+
+  return '';
+}
+
 async function callJsonApi(url, config, init = {}) {
   if (!config.cookie) {
     throw Object.assign(new Error('Missing TURING_COOKIE. Add it to .env.local before calling the proxy.'), {
@@ -1163,7 +1206,7 @@ async function callJsonApi(url, config, init = {}) {
     });
   }
 
-  return response.json();
+  return safeReadJson(response);
 }
 
 function coerceArray(payload) {
@@ -1328,6 +1371,20 @@ function toDisplayLabel(value) {
     .join(' ');
 }
 
+async function safeReadJson(response) {
+  const body = await safeReadText(response);
+
+  if (!body.trim()) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    return {};
+  }
+}
+
 async function safeReadText(response) {
   try {
     return await response.text();
@@ -1335,3 +1392,4 @@ async function safeReadText(response) {
     return '';
   }
 }
+

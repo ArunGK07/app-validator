@@ -224,6 +224,140 @@ test('refreshTaskTestCases ignores SQL*Plus directives in execution instructions
   }
 });
 
+test('refreshTaskTestCases reports turn, testcase, and statement context on execution failure', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-testcase-runner-error-context-'));
+  const taskDir = join(root, '30005');
+  const metadata = {
+    id: 30005,
+    num_turns: 1,
+    dataset: 'world_bank_wdi',
+    database: 'bigquery-public-data',
+  };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '30005_turn1_4referenceAnswer.sql'),
+      [
+        'BEGIN',
+        '  NULL;',
+        'END;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '30005_turn1_5testCases.sql'),
+      [
+        'Test Case 4:',
+        'execution_instructions:',
+        'SETSERVEROUTPUT ON;',
+        'EXEC sp_demo(NULL);',
+        'execution_result:',
+        'old',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    await assert.rejects(
+      () => refreshTaskTestCases('30005', taskDir, metadata, {}, {
+        connectionFactory: async () => ({
+          async execute(sql) {
+            const trimmed = sql.trim();
+            if (/DBMS_OUTPUT\.ENABLE/i.test(trimmed)) {
+              return { rows: [] };
+            }
+            if (/^BEGIN\b[\s\S]*NULL;[\s\S]*END;$/i.test(trimmed)) {
+              return { rows: [] };
+            }
+            throw new Error('ORA-00900: invalid SQL statement');
+          },
+          async commit() {},
+          async close() {},
+        }),
+      }),
+      /Turn 1 Test Case 4: execution failed: statement 1 failed near "SETSERVEROUTPUT ON": ORA-00900: invalid SQL statement/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('refreshTaskTestCases handles large execution_result sections without regex backtracking hangs', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-testcase-runner-large-'));
+  const taskDir = join(root, '30006');
+  const metadata = {
+    id: 30006,
+    num_turns: 1,
+    dataset: 'world_bank_wdi',
+    database: 'bigquery-public-data',
+  };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '30006_turn1_4referenceAnswer.sql'),
+      [
+        'BEGIN',
+        '  NULL;',
+        'END;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+    const largeResult = Array.from({ length: 3000 }, (_, index) => `old line ${index + 1}`).join('\n');
+    await writeFile(
+      join(taskDir, '30006_turn1_5testCases.sql'),
+      [
+        'Test Case 1:',
+        'execution_instructions:',
+        'SELECT 1 FROM dual;',
+        'execution_result:',
+        largeResult,
+        '',
+        'Test Case 2:',
+        'execution_instructions:',
+        'SELECT 2 FROM dual;',
+        'execution_result:',
+        'stale',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const result = await refreshTaskTestCases('30006', taskDir, metadata, {}, {
+      connectionFactory: async () => ({
+        async execute(sql) {
+          const trimmed = sql.trim();
+          if (/DBMS_OUTPUT\.ENABLE/i.test(trimmed)) {
+            return { rows: [] };
+          }
+          if (/DBMS_OUTPUT\.GET_LINE/i.test(trimmed)) {
+            return { outBinds: { line: null, status: 1 } };
+          }
+          if (/^SELECT\s+1\s+FROM\s+dual$/i.test(trimmed)) {
+            return { rows: [[1]] };
+          }
+          if (/^SELECT\s+2\s+FROM\s+dual$/i.test(trimmed)) {
+            return { rows: [[2]] };
+          }
+          return { rows: [] };
+        },
+        async commit() {},
+        async close() {},
+      }),
+    });
+
+    const updated = await readFile(join(taskDir, '30006_turn1_5testCases.sql'), 'utf8');
+    assert.equal(result.updatedFiles.length, 1);
+    assert.match(updated, /Test Case 1:[\s\S]*execution_result:\s*\n1\n/);
+    assert.match(updated, /Test Case 2:[\s\S]*execution_result:\s*\n2\n/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('refreshTaskTestCases handles SQL*Plus block separators after leading comments', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-testcase-runner-comment-block-'));
   const taskDir = join(root, '30004');
@@ -423,6 +557,82 @@ test('refreshTaskTestCases converts EXEC directives into runnable PL/SQL blocks'
     assert.equal(result.updatedFiles.length, 1);
     assert.ok(executedSql.some((sql) => /^BEGIN sp_validate_wdi_data\(9999\); END;$/i.test(sql)));
     assert.ok(executedSql.every((sql) => !/^EXEC(?:UTE)?\b/i.test(sql)));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('refreshTaskTestCases replaces existing multi-line execution results instead of appending', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-testcase-runner-replace-'));
+  const taskDir = join(root, '30005');
+  const metadata = {
+    id: 30005,
+    num_turns: 1,
+    dataset: 'world_bank_wdi',
+    database: 'bigquery-public-data',
+  };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '30005_turn1_4referenceAnswer.sql'),
+      [
+        'BEGIN',
+        '  NULL;',
+        'END;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '30005_turn1_5testCases.sql'),
+      [
+        'Test Case 1:',
+        'execution_instructions:',
+        'SELECT 1 FROM dual;',
+        'execution_result:',
+        'old line 1',
+        'old line 2',
+        '',
+        'Test Case 2:',
+        'execution_instructions:',
+        'SELECT 2 FROM dual;',
+        'execution_result:',
+        'older line 1',
+        'older line 2',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const result = await refreshTaskTestCases('30005', taskDir, metadata, {}, {
+      connectionFactory: async () => ({
+        async execute(sql) {
+          const trimmed = sql.trim();
+          if (/DBMS_OUTPUT\.ENABLE/i.test(trimmed)) {
+            return { rows: [] };
+          }
+          if (/DBMS_OUTPUT\.GET_LINE/i.test(trimmed)) {
+            return { outBinds: { line: null, status: 1 } };
+          }
+          if (/^SELECT\s+1\s+FROM\s+dual$/i.test(trimmed)) {
+            return { rows: [[1]] };
+          }
+          if (/^SELECT\s+2\s+FROM\s+dual$/i.test(trimmed)) {
+            return { rows: [[2]] };
+          }
+          return { rows: [] };
+        },
+        async commit() {},
+        async close() {},
+      }),
+    });
+
+    const refreshed = await readFile(join(taskDir, '30005_turn1_5testCases.sql'), 'utf8');
+    assert.equal(result.updatedFiles.length, 1);
+    assert.match(refreshed, /Test Case 1:\s*\nexecution_instructions:\s*\nSELECT 1 FROM dual;\nexecution_result:\s*\n1\s*\nTest Case 2:/);
+    assert.match(refreshed, /Test Case 2:\s*\nexecution_instructions:\s*\nSELECT 2 FROM dual;\nexecution_result:\s*\n2\s*$/);
+    assert.doesNotMatch(refreshed, /old line 1|old line 2|older line 1|older line 2/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

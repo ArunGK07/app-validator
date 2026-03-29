@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 
 import { createLogger, isBackendDebugEnabled, summarizePayload } from './logger.mjs';
 import {
+  editConversation,
   fetchBatches,
   fetchConversation,
   fetchConversations,
@@ -113,6 +114,16 @@ app.get('/api/conversations/:taskId', async (request, response) => {
   }
 });
 
+app.post('/api/conversations/:taskId/edit', async (request, response) => {
+  try {
+    const reason = typeof request.body?.reason === 'string' ? request.body.reason : 'Fixing client feedback';
+    const payload = await editConversation(asPathString(request.params.taskId), readRuntimeConfig(), { reason });
+    response.json(payload);
+  } catch (error) {
+    sendProxyError(response, error);
+  }
+});
+
 app.get('/api/reports/:taskId', async (request, response) => {
   try {
     const report = await listTaskOutputFiles(asPathString(request.params.taskId), readRuntimeConfig());
@@ -168,11 +179,20 @@ app.post('/api/tasks/:taskId/fetch-output', async (request, response) => {
 
 app.post('/api/tasks/:taskId/actions/:action', async (request, response) => {
   try {
-    const result = await runTaskWorkflowAction(
-      asPathString(request.params.action),
-      asPathString(request.params.taskId),
-      readRuntimeConfig(),
-    );
+    const action = asPathString(request.params.action);
+    const taskId = asPathString(request.params.taskId);
+    const config = readRuntimeConfig();
+
+    if (action === 'publish') {
+      const row = await fetchConversation(taskId, config);
+
+      if (isCompletedConversationStatus(row)) {
+        response.status(400).json({ message: `Task ${taskId} is already in Completed status and cannot be published.` });
+        return;
+      }
+    }
+
+    const result = await runTaskWorkflowAction(action, taskId, config);
     response.json(result);
   } catch (error) {
     sendProxyError(response, error);
@@ -227,6 +247,14 @@ function sendProxyError(response, error) {
   logger.error('Proxy request failed', { statusCode, message });
 
   response.status(statusCode).json({ message });
+}
+
+
+
+function isCompletedConversationStatus(row) {
+  const status = typeof row?.status === 'string' ? row.status.trim().toLowerCase() : '';
+  const businessStatus = typeof row?.businessStatus === 'string' ? row.businessStatus.trim().toLowerCase() : '';
+  return status === 'completed' || businessStatus === 'completed';
 }
 
 function asQueryString(value) {
@@ -286,3 +314,4 @@ function stripWrappingQuotes(value) {
 
   return value;
 }
+

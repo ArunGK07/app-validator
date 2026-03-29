@@ -60,6 +60,10 @@ export class DashboardApiService {
     );
   }
 
+  editConversation(taskId: string, reason = 'Fixing client feedback'): Observable<unknown> {
+    return this.http.post<unknown>(`/api/conversations/${encodeURIComponent(taskId)}/edit`, { reason });
+  }
+
   getTaskReportFile(taskId: string, name: string): Observable<TaskReportFile> {
     const params = new HttpParams().set('name', name);
     return this.http.get<TaskReportFile>(`/api/reports/${encodeURIComponent(taskId)}/file`, { params });
@@ -103,3 +107,4 @@ export class DashboardApiService {
     return this.http.get<ConversationRow[]>('/api/conversations', { params });
   }
 }
+

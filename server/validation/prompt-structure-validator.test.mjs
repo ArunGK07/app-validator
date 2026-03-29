@@ -341,3 +341,100 @@ test('runPromptStructureValidator accepts query-scoped sorting details for multi
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('runPromptStructureValidator accepts package subprogram sorting headers when only the package is declared in requirements', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-prompt-structure-'));
+  const taskDir = join(root, '24714');
+  const metadata = {
+    id: 24714,
+    num_turns: 1,
+  };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '24714_turn1_1user.txt'),
+      [
+        'Validate suspicious costs in one package.',
+        'Requirements:',
+        'Package Name:',
+        'pkg_cost_quality',
+        '',
+        'Parameters:',
+        '\tsf_count_suspicious_costs:',
+        '\t\tp_calendar_year - IN - NUMBER -- calendar year to inspect',
+        '\tsp_print_suspicious_sample:',
+        '\t\tp_calendar_year - IN - NUMBER -- calendar year to inspect',
+        '',
+        'Output:',
+        '\tsf_count_suspicious_costs:',
+        '\t\t[suspicious_row_count]',
+        '\tsp_print_suspicious_sample:',
+        '\t\ttime_id=',
+        '',
+        'Sorting Order:',
+        '\tsp_print_suspicious_sample:',
+        '\t\tQuery 1:',
+        '\t\t\tC.TIME_ID, C.PROD_ID',
+        '',
+        'Exception Handling:',
+        '\tsf_count_suspicious_costs:',
+        '\t\tOther Exception : Unexpected error occurred',
+        '\tsp_print_suspicious_sample:',
+        '\t\tOther Exception : Unexpected error occurred',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '24714_turn1_4referenceAnswer.sql'),
+      [
+        'CREATE OR REPLACE PACKAGE pkg_cost_quality IS',
+        '  FUNCTION sf_count_suspicious_costs(',
+        '    p_calendar_year IN NUMBER',
+        '  ) RETURN NUMBER;',
+        '',
+        '  PROCEDURE sp_print_suspicious_sample(',
+        '    p_calendar_year IN NUMBER',
+        '  );',
+        'END pkg_cost_quality;',
+        '/',
+        '',
+        'CREATE OR REPLACE PACKAGE BODY pkg_cost_quality IS',
+        '  FUNCTION sf_count_suspicious_costs(',
+        '    p_calendar_year IN NUMBER',
+        '  ) RETURN NUMBER IS',
+        '  BEGIN',
+        '    RETURN 0;',
+        '  END sf_count_suspicious_costs;',
+        '',
+        '  PROCEDURE sp_print_suspicious_sample(',
+        '    p_calendar_year IN NUMBER',
+        '  ) IS',
+        '  BEGIN',
+        '    FOR rec IN (',
+        '      SELECT c.time_id, c.prod_id',
+        '        FROM demo_costs c',
+        '       ORDER BY c.time_id, c.prod_id',
+        '    ) LOOP',
+        '      NULL;',
+        '    END LOOP;',
+        '  EXCEPTION',
+        '    WHEN OTHERS THEN',
+        '      NULL;',
+        '  END sp_print_suspicious_sample;',
+        'END pkg_cost_quality;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const results = await runPromptStructureValidator('24714', taskDir, metadata);
+    const sortingContract = results.find((entry) => entry.item === 'Sorting Order Contract');
+
+    assert.ok(sortingContract);
+    assert.equal(sortingContract.status, 'PASS');
+    assert.equal(sortingContract.ruleId, 'sorting_clause_present');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

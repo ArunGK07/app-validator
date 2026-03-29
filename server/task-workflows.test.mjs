@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { runTaskWorkflowAction } from './task-workflows.mjs';
+import { analyzeConstructs, analyzeReasoningTypes, formatCommaLines } from './generation/analyzers.mjs';
 import { PLSQL_CONSTRUCT_CATALOG, PLSQL_REASONING_TYPE_CATALOG } from './generation/reference-data.mjs';
 
 function createNamingConnectionStub() {
@@ -24,6 +25,16 @@ function createNamingConnectionStub() {
 }
 
 async function writeValidationFixture(taskDir, taskId = '9418') {
+  const codeText = [
+    'CREATE OR REPLACE PROCEDURE sp_do_work(p_input IN NUMBER) IS',
+    'BEGIN',
+    "  DBMS_OUTPUT.PUT_LINE('Unexpected error occurred');",
+    'EXCEPTION',
+    '  WHEN OTHERS THEN',
+    "    DBMS_OUTPUT.PUT_LINE('Unexpected error occurred');",
+    'END;',
+    '/',
+  ].join('\n');
   await writeFile(
     join(taskDir, `${taskId}_1metadata.json`),
     JSON.stringify({
@@ -55,20 +66,7 @@ async function writeValidationFixture(taskDir, taskId = '9418') {
   );
   await writeFile(join(taskDir, `${taskId}_turn1_2tables.txt`), 'SAMPLE.TABLE_A\nSAMPLE.TABLE_B\n', 'utf8');
   await writeFile(join(taskDir, `${taskId}_turn1_3columns.txt`), 'SAMPLE.TABLE_A.COL_A\n', 'utf8');
-  await writeFile(
-    join(taskDir, `${taskId}_turn1_4referenceAnswer.sql`),
-    [
-      'CREATE OR REPLACE PROCEDURE sp_do_work(p_input IN NUMBER) IS',
-      'BEGIN',
-      "  DBMS_OUTPUT.PUT_LINE('Unexpected error occurred');",
-      'EXCEPTION',
-      '  WHEN OTHERS THEN',
-      "    DBMS_OUTPUT.PUT_LINE('Unexpected error occurred');",
-      'END;',
-      '/',
-    ].join('\n'),
-    'utf8',
-  );
+  await writeFile(join(taskDir, `${taskId}_turn1_4referenceAnswer.sql`), codeText, 'utf8');
   await writeFile(
     join(taskDir, `${taskId}_turn1_5testCases.sql`),
     [
@@ -81,8 +79,8 @@ async function writeValidationFixture(taskDir, taskId = '9418') {
     ].join('\n'),
     'utf8',
   );
-  await writeFile(join(taskDir, `${taskId}_turn1_6reasoningTypes.txt`), 'Exception Handling\n', 'utf8');
-  await writeFile(join(taskDir, `${taskId}_turn1_7plSqlConstructs.txt`), 'CREATE OR REPLACE PROCEDURE\n', 'utf8');
+  await writeFile(join(taskDir, `${taskId}_turn1_6reasoningTypes.txt`), `${formatCommaLines(analyzeReasoningTypes(codeText))}\n`, 'utf8');
+  await writeFile(join(taskDir, `${taskId}_turn1_7plSqlConstructs.txt`), `${formatCommaLines(analyzeConstructs(codeText))}\n`, 'utf8');
 }
 
 async function writeWorkflowFixture(taskDir, taskId = '9462') {

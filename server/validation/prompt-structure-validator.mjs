@@ -347,9 +347,12 @@ function createPromptSortingGroup() {
   };
 }
 
-function parsePromptSortingGroups(lines, index) {
+function parsePromptSortingGroups(lines, index, additionalProgramNames = []) {
   const body = sectionBody(lines, index, 'sorting_order');
-  const programNames = extractRequirementProgramNames(lines, index);
+  const programNames = [...new Set([
+    ...extractRequirementProgramNames(lines, index),
+    ...additionalProgramNames.map((name) => normalizeIdentifier(name)).filter(Boolean),
+  ])];
   const groups = new Map();
   let currentProgram = programNames.length === 1 ? programNames[0] : null;
   let currentQuery = null;
@@ -941,8 +944,12 @@ function validateParameterContract(taskId, turnNumber, lines, index, codeText, c
 }
 
 function validateSortingOrderContract(taskId, turnNumber, lines, index, codeText, sourceName) {
-  const promptSorting = parsePromptSortingGroups(lines, index);
   const sortingExpectations = extractSortingExpectations(codeText);
+  const promptSorting = parsePromptSortingGroups(
+    lines,
+    index,
+    sortingExpectations.map((expectation) => expectation.programName),
+  );
 
   if (sortingExpectations.length) {
     const groupedExpectations = groupSortingExpectations(sortingExpectations);

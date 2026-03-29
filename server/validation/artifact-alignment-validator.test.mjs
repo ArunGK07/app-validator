@@ -53,7 +53,6 @@ test('runArtifactAlignmentValidator passes when prompt names and literal coverag
         'BEGIN sp_emit_message; END;',
         'execution_result:',
         'ABCD',
-        'Unexpected error occurred',
         '',
       ].join('\n'),
       'utf8',
@@ -66,7 +65,7 @@ test('runArtifactAlignmentValidator passes when prompt names and literal coverag
     assert.ok(results.some((entry) => entry.ruleId === 'output_literal_in_code' && entry.status === 'PASS'));
     assert.ok(results.some((entry) => entry.ruleId === 'output_literal_in_testcase' && entry.status === 'PASS'));
     assert.ok(results.some((entry) => entry.ruleId === 'exception_message_in_code' && entry.status === 'PASS'));
-    assert.ok(results.some((entry) => entry.ruleId === 'exception_message_in_testcase' && entry.status === 'PASS'));
+    assert.ok(results.some((entry) => entry.ruleId === 'testcase_coverage_not_required' && entry.status === 'PASS'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -189,7 +188,7 @@ test('runArtifactAlignmentValidator enforces stable label fragments from placeho
     assert.ok(results.some((entry) => entry.item === 'Output Literal Code Coverage: Country Code:' && entry.status === 'FAIL'));
     assert.ok(results.some((entry) => entry.item === 'Output Literal Test Coverage: Country Code:' && entry.status === 'FAIL'));
     assert.ok(results.some((entry) => entry.ruleId === 'missing_exception_message_in_code' && entry.status === 'FAIL'));
-    assert.ok(results.some((entry) => entry.ruleId === 'missing_exception_message_in_testcase' && entry.status === 'FAIL'));
+    assert.ok(results.some((entry) => entry.ruleId === 'testcase_coverage_not_required' && entry.status === 'PASS'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

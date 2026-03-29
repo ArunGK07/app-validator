@@ -1,6 +1,6 @@
-﻿import { createLogger } from './logger.mjs';
+import { createLogger } from './logger.mjs';
 import { generateSharedSchemaArtifact } from './schema-extractor.mjs';
-import { resolveTaskRouting } from './schema-db-config.mjs';
+import { resolveTaskRouting, supportsOracleSchemaExtraction } from './schema-db-config.mjs';
 import { fetchSchemaWarmupCandidates } from './turing-api.mjs';
 
 const logger = createLogger('schema-warmup');
@@ -131,6 +131,10 @@ function dedupeSchemaCandidates(candidates) {
       routing.profile === 'bigquery_public_data' &&
       /^bigquery-public-data$/i.test(String(routing.schemaName).trim())
     ) {
+      continue;
+    }
+
+    if (!supportsOracleSchemaExtraction(routing)) {
       continue;
     }
 
