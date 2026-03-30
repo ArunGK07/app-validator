@@ -36,7 +36,7 @@ const ANTICIPATORY_RCA_GUARD_RE =
 const ANTICIPATORY_RCA_MESSAGE_RE =
   /\bDBMS_OUTPUT\s*\.\s*PUT_LINE\s*\([\s\S]{0,200}?(?:root\s+cause|issue|prevent|avoid|skip|invalid|missing|no\s+data|zero|divide|diagnos|warning|potential)/i;
 const RCA_ANNOTATION_RE =
-  /(?:--\s*RCA(?:\s+Note|\s+Summary|\s+Enhancement)?\s*:|\bDBMS_OUTPUT\s*\.\s*PUT_LINE\s*\([\s\S]{0,220}?(?:RCA\s+Note|RCA\s+Summary|RCA\s+Enhancement|Root\s+Cause|Issue\s+identified|Solution\s*:)|--\s*(?:Issue\s+identified|Root\s+Cause|Solution)\s*:)/i;
+  /(?:--\s*RCA(?:\s+Note|\s+Summary|\s+Enhancement)?\s*:|\bDBMS_OUTPUT\s*\.\s*PUT_LINE\s*\([\s\S]{0,220}?(?:RCA\s*:|RCA\s+Note|RCA\s+Summary|RCA\s+Enhancement|Root\s+Cause|Issue\s+identified|Solution\s*:)|--\s*(?:Issue\s+identified|Root\s+Cause|Solution)\s*:)/i;
 const REASONING_TYPE_EVIDENCE = {
   aggregation: [/\b(?:COUNT|SUM|AVG|MIN|MAX|LISTAGG|MEDIAN|STDDEV|VARIANCE)\s*\(/i, 'use an aggregate function such as COUNT(), SUM(), AVG(), MIN(), or MAX()'],
   collections: [/(?:\bTYPE\s+\w+\s+IS\s+(?:TABLE|VARRAY|NESTED\s+TABLE)\b|\bINDEX\s+BY\s+(?:PLS_INTEGER|BINARY_INTEGER|VARCHAR2)\b|\b\.(?:EXTEND|TRIM|DELETE|COUNT|FIRST|LAST|NEXT|PRIOR)\s*[\(;])/i, 'declare and use a PL/SQL collection (associative array, nested table, or VARRAY)'],
@@ -52,7 +52,7 @@ const REASONING_TYPE_EVIDENCE = {
   iterative: [/\b(?:FOR\s+\w+\s+IN\b|WHILE\b[\s\S]{0,80}?LOOP\b|(?:^|\s)LOOP\b)/i, 'add an iterative construct: FOR loop, WHILE loop, or basic LOOP ... END LOOP'],
   'memory & type': [/(?:\b\w+\s+\w+%(?:TYPE|ROWTYPE)\b|\bCREATE\s+(?:OR\s+REPLACE\s+)?TYPE\b)/i, 'use %TYPE / %ROWTYPE anchored declarations or CREATE TYPE for memory-safe type binding'],
   'object-oriented design': [/(?:\bCREATE\s+(?:OR\s+REPLACE\s+)?TYPE\s+\w+\s+AS\s+OBJECT\b|\bMEMBER\s+(?:FUNCTION|PROCEDURE)\b)/i, 'define an object type using CREATE TYPE ... AS OBJECT with MEMBER FUNCTION or MEMBER PROCEDURE'],
-  'root cause analysis': [/(?:\bEXCEPTION\b[\s\S]{0,600}?\bWHEN\s+(?:NO_DATA_FOUND|TOO_MANY_ROWS|ZERO_DIVIDE|VALUE_ERROR|INVALID_NUMBER|DUP_VAL_ON_INDEX|OTHERS)\b[\s\S]{0,250}?(?:DBMS_OUTPUT\s*\.\s*PUT_LINE|RAISE_APPLICATION_ERROR|RETURN\b|:=|NULL\s*;)|--\s*RCA(?:\s+Note|\s+Summary|\s+Enhancement)?\s*:|--\s*(?:Issue\s+identified|Root\s+Cause|Solution)\s*:)/i, 'add exception-driven root cause analysis: handle a named Oracle exception and include an RCA annotation comment'],
+  'root cause analysis': [/(?:\bEXCEPTION\b[\s\S]{0,600}?\bWHEN\s+(?:NO_DATA_FOUND|TOO_MANY_ROWS|ZERO_DIVIDE|VALUE_ERROR|INVALID_NUMBER|DUP_VAL_ON_INDEX|OTHERS)\b[\s\S]{0,250}?(?:DBMS_OUTPUT\s*\.\s*PUT_LINE|RAISE_APPLICATION_ERROR|RETURN\b|:=|NULL\s*;)|--\s*RCA(?:\s+Note|\s+Summary|\s+Enhancement)?\s*:|--\s*(?:Issue\s+identified|Root\s+Cause|Solution)\s*:|\bDBMS_OUTPUT\s*\.\s*PUT_LINE\s*\([\s\S]{0,220}?RCA\s*:)/i, 'add exception-driven root cause analysis: handle a named Oracle exception and include an RCA annotation comment'],
   'transaction management': [/\b(?:COMMIT|ROLLBACK|SAVEPOINT|SET\s+TRANSACTION)\b/i, 'include explicit transaction control with COMMIT, ROLLBACK, or SAVEPOINT'],
   validation: [/(?:\bIF\b[\s\S]{0,300}?\bTHEN\b|\bRAISE(?:_APPLICATION_ERROR)?\b|\b\w+\s+EXCEPTION\b)/i, 'add input validation using IF checks, user-defined exceptions, or RAISE_APPLICATION_ERROR'],
 };

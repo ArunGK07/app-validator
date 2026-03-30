@@ -72,6 +72,10 @@ export function analyzeColumns(codeText, schema) {
     matched.add(entry);
   }
 
+  for (const entry of collectStatementScopedColumns(code, tableColumns, columnToTables, database)) {
+    matched.add(entry);
+  }
+
   return [...matched].sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
 }
 
@@ -226,6 +230,44 @@ function collectUpdateTargetColumns(code, tableColumns, database) {
   }
 
   return matched;
+}
+
+function collectStatementScopedColumns(code, tableColumns, columnToTables, database) {
+  const matched = new Set();
+  const statements = splitSqlStatementsForAnalysis(code);
+
+  for (const statement of statements) {
+    if (!/\b(?:SELECT|UPDATE|DELETE|INSERT|MERGE)\b/i.test(statement)) {
+      continue;
+    }
+
+    const statementAliasMap = extractTableAliases(statement, tableColumns);
+    const statementTables = [...new Set(Object.values(statementAliasMap))];
+    if (!statementTables.length) {
+      continue;
+    }
+
+    for (const [column, tables] of Object.entries(columnToTables)) {
+      const pattern = new RegExp(`(?<![.%])\\b${escapeRegex(column)}\\b(?!\\s*%\\s*(?:TYPE|ROWTYPE)\\b)(?!\\s*\\()`, 'i');
+      if (!pattern.test(statement)) {
+        continue;
+      }
+
+      const scoped = tables.filter((table) => statementTables.includes(table));
+      if (scoped.length === 1) {
+        matched.add(`${database.toUpperCase()}.${scoped[0].toUpperCase()}.${column.toLowerCase()}`);
+      }
+    }
+  }
+
+  return matched;
+}
+
+function splitSqlStatementsForAnalysis(code) {
+  return String(code)
+    .split(/;/)
+    .map((statement) => statement.trim())
+    .filter(Boolean);
 }
 
 function buildConstructAnalysisText(codeText) {

@@ -49,7 +49,7 @@ const RAW_REASONING_TYPE_CATALOG = [
   entry('Encapsulation', [/\bCREATE\s+(?:OR\s+REPLACE\s+)?PACKAGE(?:\s+BODY)?\b/i]),
   entry('Purity Rule Enforcement', [/\bPRAGMA\s+RESTRICT_REFERENCES\b/i, /\b(?:RNDS|WNDS|WNPS|RNPS)\b/i]),
   entry('Compile-Time Checking', [/\b(?:%TYPE|%ROWTYPE|SUBTYPE\b|TYPE\s+\w+\s+IS\s+RECORD)\b/i]),
-  entry('Root Cause Analysis', [/(?:--|\/\*)\s*RCA\s*:/i], 'any'),
+  entry('Root Cause Analysis', [/(?:--|\/\*)\s*RCA\s*:|\bDBMS_OUTPUT\s*\.\s*PUT_LINE\s*\([\s\S]{0,200}?RCA\s*:/i], 'any'),
   entry('Collections', [/\b(?:TYPE\s+\w+\s+IS\s+(?:TABLE|VARRAY)|INDEX\s+BY\b|BULK\s+COLLECT\s+INTO|FORALL\b)\b|\.\s*(?:EXTEND|TRIM|COUNT|FIRST|LAST|NEXT|PRIOR)\b/i]),
   entry('Validation', [/\b(?:RAISE_APPLICATION_ERROR|REGEXP_LIKE\s*\(|BETWEEN\b|IF\b[\s\S]{0,200}?\bIS\s+NULL\b)\b/i]),
   entry('Aggregation', [/(?:\bCOUNT\s*\(|\bSUM\s*\(|\bAVG\s*\(|\bMIN\s*\(|\bMAX\s*\(|\bLISTAGG\s*\(|\bROLLUP\b|\bCUBE\b)/i]),

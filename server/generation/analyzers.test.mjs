@@ -442,6 +442,51 @@ test('column analyzer attributes ambiguous bare WHERE columns in UPDATE statemen
   assert.ok(columns.has('IPL.PLAYER_MATCH.role'));
 });
 
+test('column analyzer attributes bare WHERE columns to the statement table in single-table SELECT statements', () => {
+  const schema = {
+    database: 'PAGILA',
+    _schema_definition: { column_format: ['name'] },
+    tables: {
+      CUSTOMER: {
+        columns: [['CUSTOMER_ID'], ['FIRST_NAME'], ['LAST_NAME'], ['EMAIL']],
+      },
+      PAYMENT: {
+        columns: [['PAYMENT_ID'], ['CUSTOMER_ID'], ['AMOUNT']],
+      },
+      RENTAL: {
+        columns: [['RENTAL_ID'], ['CUSTOMER_ID'], ['RENTAL_DATE']],
+      },
+    },
+  };
+
+  const sql = [
+    'DECLARE',
+    '  v_customer_name VARCHAR2(200);',
+    '  v_total_amount NUMBER;',
+    '  v_customer_id NUMBER := 1;',
+    'BEGIN',
+    "  SELECT first_name || ' ' || last_name",
+    '  INTO   v_customer_name',
+    '  FROM   PAGILA.CUSTOMER',
+    '  WHERE  customer_id = v_customer_id;',
+    '',
+    '  SELECT NVL(SUM(amount), 0)',
+    '  INTO   v_total_amount',
+    '  FROM   PAGILA.PAYMENT',
+    '  WHERE  customer_id = v_customer_id;',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const columns = new Set(analyzeColumns(sql, schema));
+
+  assert.ok(columns.has('PAGILA.CUSTOMER.customer_id'));
+  assert.ok(columns.has('PAGILA.PAYMENT.customer_id'));
+  assert.ok(columns.has('PAGILA.CUSTOMER.first_name'));
+  assert.ok(columns.has('PAGILA.CUSTOMER.last_name'));
+  assert.ok(columns.has('PAGILA.PAYMENT.amount'));
+});
+
 test('trigger analyzers detect trigger table, :NEW columns, reasoning, and trigger-specific constructs', () => {
   const schema = {
     database: 'CITY_LEGISLATION',
@@ -508,6 +553,62 @@ test('construct analyzer detects combined VALUE_ERROR OR INVALID_NUMBER exceptio
   const constructs = new Set(analyzeConstructs(sql));
 
   assert.ok(constructs.has('EXCEPTION ... WHEN VALUE_ERROR OR INVALID_NUMBER THEN ...'));
+});
+
+test('construct analyzer detects FETCH when BULK COLLECT appears between cursor name and INTO', () => {
+  const sql = [
+    'DECLARE',
+    '  CURSOR cur_rental_history IS',
+    '    SELECT rental_id',
+    '    FROM pagila.rental;',
+    '  TYPE t_batch IS TABLE OF NUMBER;',
+    '  v_batch t_batch;',
+    'BEGIN',
+    '  OPEN cur_rental_history;',
+    '  FETCH cur_rental_history BULK COLLECT INTO v_batch LIMIT 100;',
+    '  CLOSE cur_rental_history;',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const constructs = new Set(analyzeConstructs(sql));
+
+  assert.ok(constructs.has('OPEN'));
+  assert.ok(constructs.has('FETCH'));
+  assert.ok(constructs.has('BULK COLLECT INTO'));
+  assert.ok(constructs.has('LIMIT'));
+  assert.ok(constructs.has('CLOSE'));
+});
+
+test('construct analyzer detects .COUNT, TRIM(), TRUNC(), and PLS_INTEGER in package-style reporting code', () => {
+  const sql = [
+    'CREATE OR REPLACE PACKAGE BODY pkg_rental_analysis IS',
+    '  PROCEDURE sp_demo IS',
+    '    TYPE t_recent_rentals IS TABLE OF NUMBER INDEX BY PLS_INTEGER;',
+    '    TYPE t_batch IS TABLE OF NUMBER;',
+    '    v_recent t_recent_rentals;',
+    '    v_batch t_batch;',
+    '    v_customer_id NUMBER;',
+    '    v_rental_days NUMBER;',
+    '  BEGIN',
+    "    v_customer_id := TO_NUMBER(TRIM(' 5 '));",
+    '    v_rental_days := TRUNC(SYSDATE) - TRUNC(SYSDATE - 1);',
+    '    EXIT WHEN v_batch.COUNT = 0;',
+    '    FOR idx IN 1 .. LEAST(v_batch.COUNT, 10) LOOP',
+    '      NULL;',
+    '    END LOOP;',
+    '  END sp_demo;',
+    'END pkg_rental_analysis;',
+    '/',
+  ].join('\n');
+
+  const constructs = new Set(analyzeConstructs(sql));
+
+  assert.ok(constructs.has('.COUNT'));
+  assert.ok(constructs.has('LEAST()'));
+  assert.ok(constructs.has('PLS_INTEGER'));
+  assert.ok(constructs.has('TRIM()'));
+  assert.ok(constructs.has('TRUNC()'));
 });
 
 test('construct analyzer keeps long anonymous-block matches instead of dropping them on short regex windows', () => {
@@ -587,6 +688,29 @@ test('reasoning analyzer treats conditional flow as control flow even without EX
 
   assert.ok(reasoningTypes.has('Control Flow'));
   assert.ok(reasoningTypes.has('Decision Logic'));
+  assert.ok(reasoningTypes.has('Exception Handling'));
+});
+
+test('reasoning analyzer detects Root Cause Analysis from deterministic RCA dbms_output lines', () => {
+  const sql = [
+    'CREATE OR REPLACE PROCEDURE sp_demo(p_customer_id IN NUMBER) IS',
+    'BEGIN',
+    '  IF p_customer_id IS NULL THEN',
+    "    DBMS_OUTPUT.PUT_LINE('ERROR: Customer ID cannot be NULL');",
+    "    DBMS_OUTPUT.PUT_LINE('RCA: Input parameter p_customer_id was not provided.');",
+    '    RETURN;',
+    '  END IF;',
+    'EXCEPTION',
+    '  WHEN OTHERS THEN',
+    "    DBMS_OUTPUT.PUT_LINE('Unexpected error occurred.');",
+    'END;',
+    '/',
+  ].join('\n');
+
+  const reasoningTypes = new Set(analyzeReasoningTypes(sql));
+
+  assert.ok(reasoningTypes.has('Root Cause Analysis'));
+  assert.ok(reasoningTypes.has('Debugging'));
   assert.ok(reasoningTypes.has('Exception Handling'));
 });
 

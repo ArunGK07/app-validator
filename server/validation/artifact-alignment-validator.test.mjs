@@ -193,3 +193,76 @@ test('runArtifactAlignmentValidator enforces stable label fragments from placeho
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('runArtifactAlignmentValidator recognizes procedures implemented inside a package body', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-artifact-alignment-'));
+  const taskDir = join(root, '31004');
+  const metadata = { id: 31004, num_turns: 1 };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '31004_turn1_1user.txt'),
+      [
+        'Requirements:',
+        'Package Name:',
+        'pkg_demo',
+        'Procedure Name:',
+        'sp_emit_message',
+        '',
+        'Parameters:',
+        'sp_emit_message:',
+        '\tp_input - IN - NUMBER -- sample',
+        '',
+        'Output:',
+        'sp_emit_message:',
+        '\tMessage: ABCD',
+        '',
+        'Exception Handling:',
+        'sp_emit_message:',
+        '\tOther Exception : Unexpected error occurred',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '31004_turn1_4referenceAnswer.sql'),
+      [
+        'CREATE OR REPLACE PACKAGE pkg_demo IS',
+        '  PROCEDURE sp_emit_message(p_input IN NUMBER);',
+        'END pkg_demo;',
+        '/',
+        'CREATE OR REPLACE PACKAGE BODY pkg_demo IS',
+        '  PROCEDURE sp_emit_message(p_input IN NUMBER) IS',
+        '  BEGIN',
+        "    DBMS_OUTPUT.PUT_LINE('ABCD');",
+        '  EXCEPTION',
+        '    WHEN OTHERS THEN',
+        "      DBMS_OUTPUT.PUT_LINE('Unexpected error occurred');",
+        '  END sp_emit_message;',
+        'END pkg_demo;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '31004_turn1_5testCases.sql'),
+      [
+        'Test Case 1:',
+        'execution_instructions:',
+        'BEGIN pkg_demo.sp_emit_message(1); END;',
+        'execution_result:',
+        'ABCD',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const results = await runArtifactAlignmentValidator('31004', taskDir, metadata);
+
+    assert.ok(results.some((entry) => entry.item === 'Required Program Implementation: PACKAGE pkg_demo' && entry.status === 'PASS'));
+    assert.ok(results.some((entry) => entry.item === 'Required Program Implementation: PROCEDURE sp_emit_message' && entry.status === 'PASS'));
+    assert.ok(!results.some((entry) => entry.ruleId === 'missing_program_implementation' && entry.status === 'FAIL'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

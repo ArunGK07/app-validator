@@ -15,6 +15,7 @@ const REQUIREMENT_HEADERS = new Map([
 ]);
 const SECTION_HEADERS = /^(Requirements|Parameters|Output|Sorting Order|Exception Handling)\s*:/i;
 const TOP_LEVEL_UNIT_RE = /\bCREATE\s+(?:OR\s+REPLACE\s+)?(PACKAGE(?!\s+BODY\b)|TRIGGER|TYPE(?!\s+BODY\b)|PROCEDURE|FUNCTION)\s+((?:"?[\w$#]+"?\.)?"?[\w$#]+"?)/gi;
+const PACKAGE_ROUTINE_RE = /\b(PROCEDURE|FUNCTION)\s+((?:"?[\w$#]+"?\.)?"?[\w$#]+"?)\s*(?=\(|;|IS\b|AS\b)/gi;
 const PLACEHOLDER_TOKEN_RE = /(\[[^\]]+\]|<[^>]+>)/g;
 
 export async function runArtifactAlignmentValidator(taskId, taskDir, metadata) {
@@ -383,13 +384,32 @@ function parseTestCaseBlocks(testcaseText) {
 
 function extractImplementedUnits(codeText) {
   const units = [];
+  const seen = new Set();
 
   for (const match of codeText.matchAll(TOP_LEVEL_UNIT_RE)) {
-    units.push({
+    const unit = {
       type: match[1].toUpperCase(),
       name: match[2],
       line: findLineNumber(codeText, match.index ?? 0),
-    });
+    };
+    const key = `${unit.type}:${normalizeIdentifier(unit.name)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      units.push(unit);
+    }
+  }
+
+  for (const match of codeText.matchAll(PACKAGE_ROUTINE_RE)) {
+    const unit = {
+      type: match[1].toUpperCase(),
+      name: match[2],
+      line: findLineNumber(codeText, match.index ?? 0),
+    };
+    const key = `${unit.type}:${normalizeIdentifier(unit.name)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      units.push(unit);
+    }
   }
 
   return units;
