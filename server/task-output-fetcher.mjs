@@ -1,6 +1,7 @@
 import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises';
 import { resolve as pathResolve, relative as pathRelative } from 'node:path';
 
+import { resolveAuthorizationHeader } from './auth-header.mjs';
 import { createLogger, sanitizeHeaders } from './logger.mjs';
 import { generateTaskSchemaArtifact } from './schema-extractor.mjs';
 import { formatTaskArtifactName } from './workspace-config.mjs';
@@ -47,9 +48,11 @@ export async function fetchTaskOutputArtifacts(task, config, dependencies = {}) 
   }
 
   const responsePayload = await fetchPromptPayload(promptId, collabLink, config);
+  const normalizedMetadata = isRecord(task?.metadata) ? buildTaskMetadataPayload(taskId, task.metadata, collabLink) : null;
+  const hydratedResponsePayload = applyTaskMetadataToPromptPayload(responsePayload, normalizedMetadata);
   const metadataFile = await writeTaskMetadataFile(taskId, task?.metadata, collabLink, config);
-  const outputPath = await writeExistingOutputFile(taskId, collabLink, promptId, responsePayload, config);
-  const generatedFiles = await extractPromptTurnEvaluations(taskId, responsePayload, config);
+  const outputPath = await writeExistingOutputFile(taskId, collabLink, promptId, hydratedResponsePayload, config);
+  const generatedFiles = await extractPromptTurnEvaluations(taskId, hydratedResponsePayload, config);
   const schemaResult = await tryGenerateSchemaArtifact(
     {
       taskId,
@@ -79,18 +82,21 @@ export async function fetchTaskOutputArtifacts(task, config, dependencies = {}) 
     generatedFiles,
     schemaFile: schemaResult.schemaFile,
     schemaError: schemaResult.schemaError,
-    graphqlErrors: Array.isArray(responsePayload.errors) ? responsePayload.errors.length : 0,
+    graphqlErrors: Array.isArray(hydratedResponsePayload.errors) ? hydratedResponsePayload.errors.length : 0,
   };
 }
 
 async function fetchCollabLinkFromReviews(taskId, config) {
   logger.debug('Looking up colabLink from reviews api', { taskId });
+  const authorizationHeader = resolveAuthorizationHeader(config);
+  const headers = {
+    Accept: 'application/json',
+    Cookie: config.cookie,
+    ...(authorizationHeader ? { Authorization: authorizationHeader } : {}),
+  };
   const response = await fetch(buildReviewListUrl(taskId, config), {
     method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Cookie: config.cookie,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -112,14 +118,17 @@ async function fetchCollabLinkFromReviews(taskId, config) {
 
 async function fetchPromptPayload(promptId, collabLink, config) {
   const startedAt = Date.now();
+  const authorizationHeader = resolveAuthorizationHeader(config);
+  const headers = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    Cookie: config.cookie,
+    ...(authorizationHeader ? { Authorization: authorizationHeader } : {}),
+    ...(collabLink ? { referer: collabLink } : {}),
+  };
   const response = await fetch(config.rlhfGraphqlUrl ?? DEFAULT_GRAPHQL_URL, {
     method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Cookie: config.cookie,
-      ...(collabLink ? { referer: collabLink } : {}),
-    },
+    headers,
     body: JSON.stringify({
       operationName: 'GetPrompt',
       variables: { id: promptId },
@@ -145,12 +154,7 @@ async function fetchPromptPayload(promptId, collabLink, config) {
     promptId,
     statusCode: response.status,
     durationMs: Date.now() - startedAt,
-    headers: sanitizeHeaders({
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Cookie: config.cookie,
-      ...(collabLink ? { referer: collabLink } : {}),
-    }),
+    headers: sanitizeHeaders(headers),
   });
 
   return response.json();
@@ -181,6 +185,38 @@ function buildTaskMetadataPayload(taskId, metadata, collabLink) {
   }
 
   return payload;
+}
+
+function applyTaskMetadataToPromptPayload(responsePayload, metadata) {
+  if (!isRecord(metadata)) {
+    return responsePayload;
+  }
+
+  if (!isRecord(responsePayload) || !isRecord(responsePayload.data) || !isRecord(responsePayload.data.prompt)) {
+    return responsePayload;
+  }
+
+  const prompt = responsePayload.data.prompt;
+  const nextPrompt = {
+    ...prompt,
+    ...metadata,
+    metadata: {
+      ...(isRecord(prompt.metadata) ? prompt.metadata : {}),
+      ...metadata,
+    },
+    turingMetadata: {
+      ...(isRecord(prompt.turingMetadata) ? prompt.turingMetadata : {}),
+      ...metadata,
+    },
+  };
+
+  return {
+    ...responsePayload,
+    data: {
+      ...responsePayload.data,
+      prompt: nextPrompt,
+    },
+  };
 }
 
 function normalizeTaskIdForMetadata(taskId) {

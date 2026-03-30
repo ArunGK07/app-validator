@@ -244,7 +244,14 @@ function sendProxyError(response, error) {
       : 500;
 
   const message = error instanceof Error ? error.message : 'Unexpected proxy error.';
-  logger.error('Proxy request failed', { statusCode, message });
+  // Log client errors (4xx) at a lower level to avoid noisy server error logs
+  if (statusCode >= 500) {
+    logger.error('Proxy request failed', { statusCode, message });
+  } else if (statusCode >= 400) {
+    logger.warn('Proxy request returned client error', { statusCode, message });
+  } else {
+    logger.info('Proxy request failed', { statusCode, message });
+  }
 
   response.status(statusCode).json({ message });
 }

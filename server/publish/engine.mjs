@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { resolveAuthorizationHeader } from '../auth-header.mjs';
 import { REQUIRED_PUBLISH_FIELDS } from '../generation/reference-data.mjs';
 import { formatTaskArtifactName } from '../workspace-config.mjs';
 
@@ -28,10 +29,13 @@ const GRAPHQL_URL = 'https://rlhf-api.turing.com/graphql';
 const GRAPHQL_MUTATION = `mutation ReviewPromptTurn($promptTurnId: ID!, $input: ReviewPromptTurnInput!) {
   reviewPromptTurn(promptTurnId: $promptTurnId, review: $input) { id __typename }
 }`;
+const DEFAULT_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 250;
 
 export async function runNativePublish(taskId, taskDir, logFilePath, config, dependencies = {}) {
   const startedAt = new Date();
   const fetchImpl = dependencies.fetchImpl ?? fetch;
+  const retryAttempts = resolveRetryAttempts(config, dependencies);
   const existingOutputPath = join(taskDir, formatTaskArtifactName('existing_output_file', { taskId }));
   const existingOutput = JSON.parse(await readFile(existingOutputPath, 'utf8'));
   const referer = String(existingOutput?.colabLink ?? '').trim();
@@ -46,21 +50,13 @@ export async function runNativePublish(taskId, taskDir, logFilePath, config, dep
   for (const turnNumber of turnNumbers) {
     try {
       const payload = await buildReviewPayload(taskId, taskDir, existingOutput, turnNumber);
-      const response = await fetchImpl(GRAPHQL_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: config.cookie,
-          referer,
-        },
-        body: JSON.stringify(payload),
-      });
-      const body = await response.json();
-      if (!response.ok || (Array.isArray(body?.errors) && body.errors.length)) {
-        throw new Error(`publish failed for turn ${turnNumber}`);
-      }
+      const publishResult = await submitReviewPayload(fetchImpl, payload, referer, config.cookie, retryAttempts);
       successCount += 1;
-      logLines.push(`Turn ${turnNumber}: prompt turn review saved successfully`);
+      logLines.push(
+        publishResult.attempts > 1
+          ? `Turn ${turnNumber}: prompt turn review saved successfully after ${publishResult.attempts} attempts`
+          : `Turn ${turnNumber}: prompt turn review saved successfully`,
+      );
     } catch (error) {
       logLines.push(`Turn ${turnNumber}: ${error instanceof Error ? error.message : 'publish failed'}`);
     }
@@ -90,6 +86,132 @@ export async function runNativePublish(taskId, taskDir, logFilePath, config, dep
       turnsFailed: turnNumbers.length - successCount,
     },
   };
+}
+
+function resolveRetryAttempts(config, dependencies) {
+  const rawValue = dependencies.retryAttempts ?? config.publishRetryAttempts ?? DEFAULT_RETRY_ATTEMPTS;
+  const parsed = Number.parseInt(String(rawValue ?? ''), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_RETRY_ATTEMPTS;
+}
+
+async function submitReviewPayload(fetchImpl, payload, referer, cookie, retryAttempts) {
+  const authorizationHeader = resolveAuthorizationHeader({
+    authorizationHeader: process.env.AUTHORIZATION,
+    cookie,
+  });
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+    try {
+      const response = await fetchImpl(GRAPHQL_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: cookie,
+          ...(authorizationHeader ? { Authorization: authorizationHeader } : {}),
+          referer,
+        },
+        body: JSON.stringify(payload),
+      });
+      const body = await readResponseBody(response);
+
+      if (!response.ok) {
+        const detail = formatPublishFailureDetail(body) || response.statusText || 'request failed';
+        throw createPublishError(`publish failed with ${response.status}: ${detail}`, response.status >= 500 || response.status === 429);
+      }
+
+      if (Array.isArray(body?.errors) && body.errors.length) {
+        throw createPublishError(`publish failed with GraphQL errors: ${formatGraphqlErrors(body.errors)}`, false);
+      }
+
+      return { attempts: attempt, body };
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retryAttempts || !isRetryablePublishError(error)) {
+        break;
+      }
+      await delay(RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  throw normalizePublishError(lastError, retryAttempts);
+}
+
+async function readResponseBody(response) {
+  if (typeof response?.text === 'function') {
+    const rawText = await response.text();
+    if (!rawText) {
+      return null;
+    }
+    try {
+      return JSON.parse(rawText);
+    } catch {
+      return rawText;
+    }
+  }
+
+  if (typeof response?.json === 'function') {
+    return response.json();
+  }
+
+  return null;
+}
+
+function formatPublishFailureDetail(body) {
+  if (!body) {
+    return '';
+  }
+
+  if (typeof body === 'string') {
+    return body.trim();
+  }
+
+  if (Array.isArray(body?.errors) && body.errors.length) {
+    return formatGraphqlErrors(body.errors);
+  }
+
+  if (typeof body?.message === 'string') {
+    return body.message.trim();
+  }
+
+  return '';
+}
+
+function formatGraphqlErrors(errors) {
+  return errors
+    .map((entry) => {
+      if (typeof entry?.message === 'string' && entry.message.trim()) {
+        return entry.message.trim();
+      }
+      return JSON.stringify(entry);
+    })
+    .join(' | ');
+}
+
+function createPublishError(message, retryable) {
+  return Object.assign(new Error(message), { retryable });
+}
+
+function isRetryablePublishError(error) {
+  return Boolean(error && typeof error === 'object' && 'retryable' in error
+    ? error.retryable
+    : error instanceof TypeError || /fetch failed/i.test(String(error instanceof Error ? error.message : error)));
+}
+
+function normalizePublishError(error, retryAttempts) {
+  if (error instanceof Error) {
+    if (retryAttempts > 1 && isRetryablePublishError(error) && !/after \d+ attempts/i.test(error.message)) {
+      return new Error(`${error.message} after ${retryAttempts} attempts`);
+    }
+    return error;
+  }
+
+  const message = String(error ?? 'publish failed');
+  return new Error(retryAttempts > 1 ? `${message} after ${retryAttempts} attempts` : message);
+}
+
+function delay(durationMs) {
+  return new Promise((resolve) => setTimeout(resolve, durationMs));
 }
 
 async function detectAvailableTurns(taskDir, taskId, existingOutput) {

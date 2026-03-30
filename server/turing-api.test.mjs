@@ -28,6 +28,7 @@ import {
   inferTurnCount,
   listTaskOutputFiles,
   normalizeConversation,
+  readRuntimeConfig,
   readTaskOutputFile,
   resolveTaskSchemaInfo,
   summarizeMetadata,
@@ -159,6 +160,47 @@ test('editConversation posts to the upstream edit endpoint and forwards the bear
     assert.equal(requests[0].init?.method, 'POST');
     assert.equal(requests[0].init?.headers?.Cookie, 'cookie=value; oracle_access_token=test-token');
     assert.equal(requests[0].init?.headers?.Authorization, 'Bearer test-token');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('readRuntimeConfig picks up AUTHORIZATION from the environment', () => {
+  const runtime = readRuntimeConfig({
+    AUTHORIZATION: 'Bearer explicit-token',
+    TURING_COOKIE: 'cookie=value',
+    LABELING_API_BASE_URL: 'https://labeling-o.turing.com',
+    LABELING_PROJECT_ID: '57',
+  });
+
+  assert.equal(runtime.authorizationHeader, 'Bearer explicit-token');
+});
+
+test('fetchRawConversations forwards Authorization when configured', async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async (_input, init) => {
+    assert.equal(init?.headers?.Cookie, config.cookie);
+    assert.equal(init?.headers?.Authorization, 'Bearer explicit-token');
+
+    return new Response(
+      JSON.stringify({
+        data: [],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+
+  try {
+    await fetchRawConversations(
+      {
+        limit: '1',
+      },
+      {
+        ...config,
+        authorizationHeader: 'Bearer explicit-token',
+      },
+    );
   } finally {
     global.fetch = originalFetch;
   }
@@ -403,6 +445,64 @@ test('fetchConversation loads and normalizes a single task record from the detai
     assert.equal(row?.turnCount, '1');
     assert.equal(row?.complexity, 'Intermediate');
     assert.equal(row?.collabLink, 'https://rlhf-v3.turing.com/prompt/single-task-link');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('fetchConversation prefers newer turingMetadata values when metadata and turingMetadata disagree', async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    assert.equal(init?.headers?.Cookie, config.cookie);
+
+    if (url.startsWith('https://labeling-o.turing.com/api/conversations/15761?')) {
+      return new Response(
+        JSON.stringify({
+          id: 15761,
+          status: 'labeling',
+          batch: { id: 214, name: 'production_batch_0' },
+          currentUser: { name: 'Aniket Saxena' },
+          seed: {
+            metadata: {
+              num_turns: '4',
+              required_debugging_task: false,
+              required_cursors: true,
+            },
+            turingMetadata: {
+              required_debugging_task: true,
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    if (url === 'https://labeling-o.turing.com/api/reviews?conversationId=15761&join%5B0%5D=conversation') {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              conversation: {
+                colabLink: 'https://rlhf-v3.turing.com/prompt/9b5feb50-d795-4e27-abba-2a8a927030f3',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    throw new Error('Unexpected URL ' + url);
+  };
+
+  try {
+    const row = await fetchConversation('15761', config);
+
+    assert.equal(row?.taskId, '15761');
+    assert.equal(row?.metadata.required_cursors, true);
+    assert.equal(row?.metadata.required_debugging_task, true);
   } finally {
     global.fetch = originalFetch;
   }

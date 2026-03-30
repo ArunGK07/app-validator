@@ -403,3 +403,50 @@ test('runTaskWorkflowAction(publish) uses the native GraphQL publisher', async (
   }
 });
 
+test('runTaskWorkflowAction(publish) retries transient fetch failures and records recovery in the log', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-workflows-'));
+  const taskOutputDir = join(root, 'task-output');
+  const taskDir = join(taskOutputDir, '9462');
+  const requests = [];
+  let attempts = 0;
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeWorkflowFixture(taskDir);
+
+    const result = await runTaskWorkflowAction(
+      'publish',
+      '9462',
+      {
+        cookie: 'cookie=value',
+        taskOutputDir,
+        trainerProjectDir: 'D:\\Turing\\Projects\\workspace\\llm-trainer-project',
+      },
+      {
+        publishDependencies: {
+          fetchImpl: async (url, init) => {
+            attempts += 1;
+            requests.push({ url, init, attempt: attempts });
+            if (attempts === 1) {
+              throw new TypeError('fetch failed');
+            }
+            return {
+              ok: true,
+              status: 200,
+              async json() {
+                return { data: { reviewPromptTurn: { id: 'turn-1' } } };
+              },
+            };
+          },
+        },
+      },
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(requests.length, 2);
+    assert.match(await readFile(result.logFile, 'utf8'), /saved successfully after 2 attempts/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+

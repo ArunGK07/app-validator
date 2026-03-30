@@ -138,6 +138,42 @@
   padding-top: 4px;
 }
 
+/* Bottom-center toast for action messages */
+.action-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 1200;
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.action-toast__message {
+  pointer-events: auto;
+  min-height: 40px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text);
+  border: 1px solid rgba(131, 102, 65, 0.12);
+  box-shadow: 0 8px 24px rgba(67, 42, 14, 0.12);
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  max-width: min(95vw, 980px);
+  text-align: center;
+}
+
+.action-toast__message--error {
+  background: #fff0f0;
+  color: var(--error);
+  border-color: rgba(156, 47, 47, 0.18);
+
+}
+
 .task-summary {
   display: grid;
   gap: 4px;
@@ -262,6 +298,19 @@
   width: max-content;
   max-width: 100%;
   margin-left: auto;
+}
+
+/* Ensure all header buttons share the same sizing */
+.header-actions .review-mode-toggle__button,
+.header-actions .action-button,
+.header-actions .link-button {
+  min-height: 34px;
+  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.88rem;
+  line-height: 1;
 }
 
 .header-actions--floating .header-actions__row {
@@ -748,6 +797,45 @@ h2 {
   justify-content: space-between;
   align-items: start;
   gap: 10px;
+}
+
+/* Simple modal styles for fetch confirmation */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+.modal {
+  background: white;
+  color: var(--text);
+  max-width: 560px;
+  width: 100%;
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+.modal h3 {
+  margin: 0 0 8px 0;
+}
+
+.modal-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal button:focus {
+  outline: 2px solid rgba(29, 95, 136, 0.28);
+  outline-offset: 2px;
 }
 
 .validation-summary-row__actions {

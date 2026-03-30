@@ -409,3 +409,70 @@ test('fetchTaskOutputArtifacts writes the metadata file and includes the schema 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('fetchTaskOutputArtifacts overlays task metadata into existing_output prompt metadata blocks', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-fetch-output-'));
+  const originalFetch = global.fetch;
+
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        data: {
+          prompt: {
+            id: 'prompt-15761',
+            type: 'PROMPT',
+            complexity: 'intermediate',
+            required_debugging_task: true,
+            metadata: {
+              complexity: 'intermediate',
+              required_debugging_task: true,
+            },
+            turingMetadata: {
+              complexity: 'intermediate',
+              required_debugging_task: true,
+            },
+            formData: {
+              feedback: null,
+            },
+            promptTurns: [
+              {
+                promptIndex: 0,
+                promptEvaluationFeedback: {
+                  promptTurnEvaluation: [{ name: 'User', value: 'Prompt body' }],
+                },
+              },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+  try {
+    await fetchTaskOutputArtifacts(
+      {
+        taskId: '15761',
+        collabLink: 'https://rlhf-v3.turing.com/prompt/prompt-15761',
+        metadata: {
+          complexity: 'intermediate',
+          required_debugging_task: false,
+          required_triggers: false,
+        },
+      },
+      {
+        cookie: 'cookie=value',
+        taskOutputDir: root,
+        rlhfGraphqlUrl: 'https://rlhf-api.turing.com/graphql',
+      },
+    );
+
+    const existingOutput = JSON.parse(await readFile(join(root, '15761', '15761_existing_output.json'), 'utf8'));
+    assert.equal(existingOutput.response.data.prompt.required_debugging_task, false);
+    assert.equal(existingOutput.response.data.prompt.metadata.required_debugging_task, false);
+    assert.equal(existingOutput.response.data.prompt.turingMetadata.required_debugging_task, false);
+    assert.equal(existingOutput.response.data.prompt.required_triggers, false);
+  } finally {
+    global.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});

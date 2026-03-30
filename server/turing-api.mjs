@@ -2,6 +2,7 @@ import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve as pathResolve, relative as pathRelative } from 'node:path';
 import { URL, URLSearchParams } from 'node:url';
 
+import { resolveAuthorizationHeader } from './auth-header.mjs';
 import { createLogger, isBackendDebugEnabled, sanitizeHeaders } from './logger.mjs';
 import { extendRuntimeConfigWithWorkflowDefaults } from './task-workflows.mjs';
 import { getSchemaCacheDir, getTaskOutputDir } from './workspace-config.mjs';
@@ -230,6 +231,7 @@ const statusQueryPresets = {
 
 export function readRuntimeConfig(env = process.env) {
   return extendRuntimeConfigWithWorkflowDefaults({
+    authorizationHeader: resolveAuthorizationHeader(env),
     cookie: env.TURING_COOKIE ?? '',
     labelingBaseUrl: env.LABELING_API_BASE_URL ?? DEFAULT_LABELING_BASE_URL,
     projectId: env.LABELING_PROJECT_ID ?? DEFAULT_PROJECT_ID,
@@ -326,17 +328,16 @@ export async function fetchConversation(taskId, config) {
 }
 
 export async function editConversation(taskId, config, payload = {}) {
-  const authorizationToken = extractOracleAccessToken(config.cookie);
+  const authorizationHeader = resolveAuthorizationHeader(config);
   logger.debug('Editing conversation', {
     taskId,
     payload,
-    hasAuthorizationToken: Boolean(authorizationToken),
+    hasAuthorizationToken: Boolean(authorizationHeader),
   });
   const response = await callJsonApi(buildConversationEditUrl(taskId, config), config, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(authorizationToken ? { Authorization: `Bearer ${authorizationToken}` } : {}),
     },
     body: JSON.stringify(payload),
   });
@@ -670,7 +671,26 @@ export function resolveTaskSchemaInfo(metadata) {
 }
 
 function extractConversationMetadata(record) {
-  return coerceStructuredValue(record?.seed?.metadata ?? record?.metadata ?? record?.seed?.turingMetadata ?? record?.turingMetadata ?? null);
+  return mergeMetadataValues(
+    record?.metadata,
+    record?.turingMetadata,
+    record?.seed?.metadata,
+    record?.seed?.turingMetadata,
+  );
+}
+
+function mergeMetadataValues(...values) {
+  const normalizedValues = values
+    .map((value) => coerceStructuredValue(value))
+    .filter((value) => value !== null && value !== undefined);
+
+  const recordValues = normalizedValues.filter((value) => isRecord(value));
+
+  if (recordValues.length) {
+    return Object.assign({}, ...recordValues);
+  }
+
+  return normalizedValues.at(-1) ?? null;
 }
 
 function resolveBatchId(record) {
@@ -1136,26 +1156,6 @@ function readNestedValue(source, path) {
   return current;
 }
 
-function extractOracleAccessToken(cookieHeader) {
-  if (!cookieHeader || typeof cookieHeader !== 'string') {
-    return '';
-  }
-
-  const parts = cookieHeader.split(';');
-
-  for (const part of parts) {
-    const trimmed = part.trim();
-
-    if (!trimmed.toLowerCase().startsWith('oracle_access_token=')) {
-      continue;
-    }
-
-    return trimmed.slice('oracle_access_token='.length).trim();
-  }
-
-  return '';
-}
-
 async function callJsonApi(url, config, init = {}) {
   if (!config.cookie) {
     throw Object.assign(new Error('Missing TURING_COOKIE. Add it to .env.local before calling the proxy.'), {
@@ -1164,23 +1164,23 @@ async function callJsonApi(url, config, init = {}) {
   }
 
   const startedAt = Date.now();
+  const authorizationHeader = resolveAuthorizationHeader(config);
+  const headers = {
+    Accept: 'application/json',
+    Cookie: config.cookie,
+    ...(authorizationHeader ? { Authorization: authorizationHeader } : {}),
+    ...(init.headers ?? {}),
+  };
+
   logger.debug('Calling upstream API', {
     url,
     method: init.method ?? 'GET',
-    headers: sanitizeHeaders({
-      Accept: 'application/json',
-      Cookie: config.cookie,
-      ...(init.headers ?? {}),
-    }),
+    headers: sanitizeHeaders(headers),
   });
 
   const response = await fetch(url, {
     ...init,
-    headers: {
-      Accept: 'application/json',
-      Cookie: config.cookie,
-      ...(init.headers ?? {}),
-    },
+    headers,
   });
 
   if (!response.ok) {

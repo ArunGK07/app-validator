@@ -63,7 +63,7 @@
                 type="button"
                 class="action-button"
                 [disabled]="isTaskActionDisabled()"
-                (click)="fetchTaskData()"
+                (click)="confirmAndFetch()"
               >
                 {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
               </button>
@@ -120,10 +120,7 @@
       </div>
     </div>
 
-    <div *ngIf="actionMessage || actionError" class="report-header__full report-header__status">
-      <div *ngIf="actionMessage" class="notice header-notice">{{ actionMessage }}</div>
-      <div *ngIf="actionError" class="notice notice--error header-notice">{{ actionError }}</div>
-    </div>
+    <!-- action messages are shown as a toast at the bottom-center instead of occupying header space -->
 
     <div *ngIf="taskId && !loadingReport && fileGroups.length" class="report-header__full report-header__groups">
       <div class="report-header__groups-row">
@@ -171,6 +168,24 @@
         </ng-template>
       </div>
     </div>
+  </div>
+
+  <!-- Fetch confirmation modal -->
+  <div *ngIf="showFetchConfirm" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="fetchConfirmTitle">
+    <div class="modal" role="document">
+      <h3 id="fetchConfirmTitle">Confirm Fetch</h3>
+      <p>Fetch latest data for task {{ taskId }}? This will update the report and may overwrite current view.</p>
+      <div class="modal-actions">
+        <button #fetchCancelButton type="button" class="action-button action-button--secondary" (click)="cancelFetch()">Cancel</button>
+        <button type="button" class="action-button" (click)="doFetchConfirmed()" [disabled]="isTaskActionDisabled() || loadingFetch">{{ loadingFetch ? 'Fetching...' : 'Fetch' }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- bottom-center toast for action messages (appears only when there's a message or error) -->
+  <div class="action-toast" *ngIf="actionMessage || actionError" aria-live="polite">
+    <div *ngIf="actionMessage" class="action-toast__message">{{ actionMessage }}</div>
+    <div *ngIf="actionError" class="action-toast__message action-toast__message--error">{{ actionError }}</div>
   </div>
 
   <div class="report-body">

@@ -446,3 +446,159 @@ test('construct analyzer detects combined VALUE_ERROR OR INVALID_NUMBER exceptio
 
   assert.ok(constructs.has('EXCEPTION ... WHEN VALUE_ERROR OR INVALID_NUMBER THEN ...'));
 });
+
+test('construct analyzer keeps long anonymous-block matches instead of dropping them on short regex windows', () => {
+  const declarePadding = Array.from({ length: 80 }, (_, index) => `  lv_pad_${index} VARCHAR2(20) := 'pad';`).join('\n');
+  const ifBody = Array.from({ length: 40 }, (_, index) => `      DBMS_OUTPUT.PUT_LINE('line ${index}');`).join('\n');
+  const exceptionPadding = Array.from({ length: 40 }, (_, index) => `    DBMS_OUTPUT.PUT_LINE('other ${index}');`).join('\n');
+  const sql = [
+    'DECLARE',
+    declarePadding,
+    '  CURSOR cur_customer_orders IS',
+    '    SELECT order_id, order_total',
+    '      FROM orders',
+    '     WHERE customer_id = 101;',
+    '  lv_order_id NUMBER;',
+    '  lv_order_total NUMBER;',
+    '  lv_found NUMBER := 0;',
+    '  exp_no_orders_found EXCEPTION;',
+    'BEGIN',
+    '  OPEN cur_customer_orders;',
+    '  LOOP',
+    '    FETCH cur_customer_orders INTO lv_order_id, lv_order_total;',
+    '    EXIT WHEN cur_customer_orders%NOTFOUND;',
+    '    IF lv_order_total > 1000 THEN',
+    ifBody,
+    '    END IF;',
+    '  END LOOP;',
+    '  CLOSE cur_customer_orders;',
+    '  IF lv_found = 0 THEN',
+    '    RAISE exp_no_orders_found;',
+    '  END IF;',
+    '  COMMIT;',
+    'EXCEPTION',
+    '  WHEN exp_no_orders_found THEN',
+    "    DBMS_OUTPUT.PUT_LINE('No orders found');",
+    exceptionPadding,
+    '  WHEN OTHERS THEN',
+    "    DBMS_OUTPUT.PUT_LINE('Unexpected');",
+    'END;',
+    '/',
+  ].join('\n');
+
+  const constructs = new Set(analyzeConstructs(sql));
+
+  for (const label of [
+    'DECLARE ... BEGIN ... END',
+    'EXCEPTION ... WHEN OTHERS THEN ...',
+    'IF ... THEN ... END IF',
+    'LOOP ... END LOOP',
+    'OPEN',
+    'FETCH',
+    'CLOSE',
+    'EXIT WHEN ...',
+    '%NOTFOUND',
+    'RAISE',
+    'COMMIT',
+  ]) {
+    assert.ok(constructs.has(label), `expected ${label} to survive long-block matching`);
+  }
+});
+
+test('reasoning analyzer treats conditional flow as control flow even without EXIT or RETURN', () => {
+  const sql = [
+    'DECLARE',
+    '  exp_no_orders_found EXCEPTION;',
+    'BEGIN',
+    '  IF 1 = 1 THEN',
+    '    RAISE exp_no_orders_found;',
+    '  END IF;',
+    'EXCEPTION',
+    '  WHEN exp_no_orders_found THEN',
+    '    NULL;',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const reasoningTypes = new Set(analyzeReasoningTypes(sql));
+
+  assert.ok(reasoningTypes.has('Control Flow'));
+  assert.ok(reasoningTypes.has('Decision Logic'));
+  assert.ok(reasoningTypes.has('Exception Handling'));
+});
+
+test('construct analyzer detects TO_TIMESTAMP calls in predicates', () => {
+  const sql = [
+    'CREATE OR REPLACE PROCEDURE sp_filter_recent_orders IS',
+    'BEGIN',
+    '  FOR rec IN (',
+    '    SELECT o.order_id',
+    '      FROM orders o',
+    "     WHERE TO_TIMESTAMP(o.order_purchase_timestamp, 'YYYY-MM-DD HH24:MI:SS.FF') >= TO_TIMESTAMP('2018-01-01 00:00:00.000000', 'YYYY-MM-DD HH24:MI:SS.FF')",
+    '  ) LOOP',
+    '    NULL;',
+    '  END LOOP;',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const constructs = new Set(analyzeConstructs(sql));
+
+  assert.ok(constructs.has('TO_TIMESTAMP'));
+});
+
+test('analysis normalization does not treat double hyphens inside string literals as SQL comments', () => {
+  const sql = [
+    'DECLARE',
+    '  CURSOR cur_customer_orders IS SELECT 1 AS total_payment FROM dual;',
+    '  lv_total_orders NUMBER := 0;',
+    '  lv_rec cur_customer_orders%ROWTYPE;',
+    '  exp_no_orders_found EXCEPTION;',
+    'BEGIN',
+    "  DBMS_OUTPUT.PUT_LINE('--- ORDER ANALYSIS STARTED ---');",
+    '  OPEN cur_customer_orders;',
+    '  LOOP',
+    '    FETCH cur_customer_orders INTO lv_rec;',
+    '    EXIT WHEN cur_customer_orders%NOTFOUND;',
+    '    IF lv_rec.total_payment > 500 THEN',
+    '      NULL;',
+    '    END IF;',
+    '  END LOOP;',
+    '  CLOSE cur_customer_orders;',
+    "  DBMS_OUTPUT.PUT_LINE('--- ANALYSIS COMPLETED SUCCESSFULLY ---');",
+    '  IF lv_total_orders = 0 THEN',
+    '    RAISE exp_no_orders_found;',
+    '  END IF;',
+    '  COMMIT;',
+    'EXCEPTION',
+    '  WHEN exp_no_orders_found THEN',
+    '    ROLLBACK;',
+    '  WHEN OTHERS THEN',
+    '    ROLLBACK;',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const constructs = new Set(analyzeConstructs(sql));
+  const reasoningTypes = new Set(analyzeReasoningTypes(sql));
+
+  for (const label of [
+    'COMMIT',
+    'LOOP ... END LOOP',
+    'OPEN',
+    'FETCH',
+    'CLOSE',
+    '%NOTFOUND',
+    'EXIT WHEN ...',
+    'IF ... THEN ... END IF',
+    'RAISE',
+    'DECLARE ... BEGIN ... END',
+    'EXCEPTION ... WHEN OTHERS THEN ...',
+  ]) {
+    assert.ok(constructs.has(label), `expected ${label} to remain visible after normalization`);
+  }
+
+  for (const label of ['Exception Handling', 'Control Flow', 'Iterative']) {
+    assert.ok(reasoningTypes.has(label), `expected ${label} to remain visible after normalization`);
+  }
+});

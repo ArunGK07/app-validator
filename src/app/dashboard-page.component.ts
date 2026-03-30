@@ -117,34 +117,36 @@ export class DashboardPageComponent implements OnInit {
     this.openMetadataTaskId = this.openMetadataTaskId === taskId ? null : taskId;
   }
 
-  fetchTask(row: ConversationRow): void {
+  async fetchTask(row: ConversationRow): Promise<void> {
     if (!row.taskId || this.hasBackgroundTaskProcess) {
       return;
     }
 
-    this.loadingTaskId = row.taskId;
+    const taskId = row.taskId;
+    this.loadingTaskId = taskId;
     this.error = '';
     this.message = '';
 
-    this.api
-      .fetchTaskOutput(row.taskId, this.buildTaskFetchPayload(row))
-      .pipe(finalize(() => (this.loadingTaskId = null)))
-      .subscribe({
-        next: (result) => {
-          const generatedCount = result.generatedFiles.length;
-          const graphqlNote = result.graphqlErrors ? ` GraphQL returned ${result.graphqlErrors} error(s).` : '';
-          const metadataNote = result.metadataFile ? ` Metadata file ${result.metadataFile} is ready.` : '';
-          const schemaNote = result.schemaFile
-            ? ` Schema cache ${result.schemaFile} is ready.`
-            : result.schemaError
-              ? ` Schema generation failed: ${result.schemaError}`
-              : '';
-          this.message = `Fetched task ${result.taskId} and generated ${generatedCount} file${generatedCount === 1 ? '' : 's'} in ${result.folderPath}.${graphqlNote}${metadataNote}${schemaNote}`;
-        },
-        error: (error: unknown) => {
-          this.error = this.asErrorMessage(error);
-        },
-      });
+    try {
+      const freshRow = await firstValueFrom(this.api.getConversation(taskId));
+      this.replaceRow(freshRow);
+      const result = await firstValueFrom(this.api.fetchTaskOutput(freshRow.taskId, this.buildTaskFetchPayload(freshRow)));
+      const generatedCount = result.generatedFiles.length;
+      const graphqlNote = result.graphqlErrors ? ` GraphQL returned ${result.graphqlErrors} error(s).` : '';
+      const metadataNote = result.metadataFile ? ` Metadata file ${result.metadataFile} is ready.` : '';
+      const schemaNote = result.schemaFile
+        ? ` Schema cache ${result.schemaFile} is ready.`
+        : result.schemaError
+          ? ` Schema generation failed: ${result.schemaError}`
+          : '';
+      this.message = `Fetched task ${result.taskId} and generated ${generatedCount} file${generatedCount === 1 ? '' : 's'} in ${result.folderPath}.${graphqlNote}${metadataNote}${schemaNote}`;
+    } catch (error) {
+      this.error = this.asErrorMessage(error);
+    } finally {
+      if (this.loadingTaskId === taskId) {
+        this.loadingTaskId = null;
+      }
+    }
   }
 
   async fetchAllTasks(): Promise<void> {
@@ -167,7 +169,9 @@ export class DashboardPageComponent implements OnInit {
         this.message = `Fetching ${this.bulkFetchCompleted} of ${this.displayRows.length}: task ${row.taskId}.`;
 
         try {
-          await firstValueFrom(this.api.fetchTaskOutput(row.taskId, this.buildTaskFetchPayload(row)));
+          const freshRow = await firstValueFrom(this.api.getConversation(row.taskId));
+          this.replaceRow(freshRow);
+          await firstValueFrom(this.api.fetchTaskOutput(freshRow.taskId, this.buildTaskFetchPayload(freshRow)));
         } catch (error) {
           failures.push({
             taskId: row.taskId,
@@ -410,6 +414,21 @@ export class DashboardPageComponent implements OnInit {
       collabLink: this.getCollabHref(row) ?? undefined,
       metadata: row.metadata,
     };
+  }
+
+  private replaceRow(updatedRow: ConversationRow): void {
+    const rowIndex = this.rows.findIndex((entry) => entry.taskId === updatedRow.taskId);
+
+    if (rowIndex === -1) {
+      return;
+    }
+
+    this.rows = [
+      ...this.rows.slice(0, rowIndex),
+      updatedRow,
+      ...this.rows.slice(rowIndex + 1),
+    ];
+    this.updateDisplayRows();
   }
 
   private sortRows(rows: ConversationRow[], sortState: SortState | null): ConversationRow[] {

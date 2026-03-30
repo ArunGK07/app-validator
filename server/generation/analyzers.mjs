@@ -307,7 +307,76 @@ function removeStringLiterals(code) {
 }
 
 function normalizeCodeForAnalysis(code) {
-  return removeStringLiterals(removeSqlComments(code));
+  return scrubSqlForAnalysis(code);
+}
+
+function scrubSqlForAnalysis(code) {
+  const text = String(code ?? '');
+  let index = 0;
+  let output = '';
+  let pendingStringPlaceholder = false;
+
+  while (index < text.length) {
+    const current = text[index];
+    const next = text[index + 1];
+
+    if (pendingStringPlaceholder) {
+      output += '__STR__';
+      pendingStringPlaceholder = false;
+    }
+
+    if (current === "'" ) {
+      pendingStringPlaceholder = true;
+      index += 1;
+      while (index < text.length) {
+        if (text[index] === "'" && text[index + 1] === "'") {
+          index += 2;
+          continue;
+        }
+        if (text[index] === "'") {
+          index += 1;
+          break;
+        }
+        if (text[index] === '\r' || text[index] === '\n') {
+          output += text[index];
+        }
+        index += 1;
+      }
+      continue;
+    }
+
+    if (current === '-' && next === '-') {
+      index += 2;
+      while (index < text.length && text[index] !== '\r' && text[index] !== '\n') {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (current === '/' && next === '*') {
+      index += 2;
+      while (index < text.length) {
+        if (text[index] === '*' && text[index + 1] === '/') {
+          index += 2;
+          break;
+        }
+        if (text[index] === '\r' || text[index] === '\n') {
+          output += text[index];
+        }
+        index += 1;
+      }
+      continue;
+    }
+
+    output += current;
+    index += 1;
+  }
+
+  if (pendingStringPlaceholder) {
+    output += '__STR__';
+  }
+
+  return output;
 }
 
 function normalizeIdentifier(value) {

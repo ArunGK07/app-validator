@@ -138,6 +138,7 @@ export class ReportPageComponent implements OnInit {
   @ViewChild('fileEditor') private fileEditorRef?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('readOnlyPreview') private readOnlyPreviewRef?: ElementRef<HTMLElement>;
   @ViewChild('reportGrid') private reportGridRef?: ElementRef<HTMLElement>;
+  @ViewChild('fetchCancelButton') private fetchCancelButton?: ElementRef<HTMLButtonElement>;
   private autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private saveRequest: Promise<boolean> | null = null;
   private panelResizeCleanup: (() => void) | null = null;
@@ -185,6 +186,7 @@ export class ReportPageComponent implements OnInit {
   actionError = '';
   actionMessage = '';
   loadingFetch = false;
+  showFetchConfirm = false;
   editingConversation = false;
   runningAction: TaskWorkflowAction | null = null;
   lastActionResult: TaskWorkflowActionResult | null = null;
@@ -260,15 +262,67 @@ export class ReportPageComponent implements OnInit {
       this.loadTaskSummary(taskId);
       this.loadReport(taskId);
 
-      if (autoFetchKey && this.lastAutoFetchKey !== autoFetchKey) {
+      // Never auto-trigger fetch on navigation. If a `fetch` token is present
+      // keep it recorded but do not perform any automatic network actions.
+      if (autoFetchKey) {
         this.lastAutoFetchKey = autoFetchKey;
-        queueMicrotask(() => {
-          void this.fetchTaskData();
-        });
-      } else if (!autoFetchKey) {
+      } else {
         this.lastAutoFetchKey = '';
       }
     });
+  }
+
+  /**
+   * Central entry to request fetching task data. When a `fetchToken` is
+   * provided it is used to prevent duplicate automatic fetches. Both the
+   * automatic trigger and the "Fetch Data" button should call this so the
+   * behaviour is identical.
+   */
+  requestFetch(fetchToken?: string | null): void {
+    const key = fetchToken ?? '';
+
+    if (key) {
+      if (this.lastAutoFetchKey === key) {
+        return;
+      }
+      this.lastAutoFetchKey = key;
+    } else {
+      this.lastAutoFetchKey = '';
+    }
+
+    queueMicrotask(() => {
+      void this.fetchTaskData();
+    });
+  }
+
+  /**
+   * Show a confirmation dialog, then call the unified fetch entry.
+   * This is used by the manual "Fetch Data" button so users must confirm
+   * before any data is fetched and report content can be updated.
+   */
+  confirmAndFetch(): void {
+    if (!this.taskId || this.isTaskActionDisabled()) {
+      return;
+    }
+
+    this.showFetchConfirm = true;
+
+    queueMicrotask(() => {
+      try {
+        this.fetchCancelButton?.nativeElement?.focus();
+      } catch {
+        // ignore focus errors
+      }
+    });
+  }
+
+  cancelFetch(): void {
+    this.showFetchConfirm = false;
+  }
+
+  doFetchConfirmed(): void {
+    this.showFetchConfirm = false;
+    this.requestFetch();
   }
 
   async selectFile(name: string, options?: { targetLine?: number | null }): Promise<void> {
