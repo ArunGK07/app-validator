@@ -27,6 +27,24 @@
         </div>
         <p *ngIf="report?.folderPath" class="eyebrow">{{ report?.folderPath }}</p>
       </div>
+      <!-- Show only the Fetch Data button for new tasks or when no report/files exist -->
+      <div *ngIf="taskId && !loadingReport && (!report || (report && !report.files.length))" class="report-header__aside">
+        <div class="header-actions header-actions--grouped">
+          <div class="header-actions__row">
+            <div class="workflow-actions">
+              <button
+                type="button"
+                class="action-button"
+                [disabled]="isTaskActionDisabled()"
+                (click)="confirmAndFetch()"
+              >
+                {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
+              </button>
+            </div>
+            <a routerLink="/" class="link-button">Back to dashboard</a>
+          </div>
+        </div>
+      </div>
 
       <div *ngIf="taskId && !loadingReport && report" class="report-header__aside">
         <div class="header-actions header-actions--grouped">

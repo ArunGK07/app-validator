@@ -214,6 +214,51 @@ test('construct analyzer detects plain LEFT JOIN separately from LEFT OUTER JOIN
   assert.ok(!constructs.has('LEFT OUTER JOIN'));
 });
 
+test('construct analyzer detects trigger-specific AFTER UPDATE OF, WHEN (...), and :OLD. ... clause usage', () => {
+  const sql = [
+    'CREATE OR REPLACE TRIGGER trg_audit_payment_method',
+    'AFTER UPDATE OF payment_method ON delivery_center.payments',
+    'FOR EACH ROW',
+    'WHEN (OLD.payment_method != NEW.payment_method)',
+    'BEGIN',
+    '  DBMS_OUTPUT.PUT_LINE(:NEW.payment_id);',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const constructs = new Set(analyzeConstructs(sql));
+
+  assert.ok(constructs.has('AFTER UPDATE OF'));
+  assert.ok(constructs.has('WHEN (...)'));
+  assert.ok(constructs.has(':OLD. ...'));
+  assert.ok(constructs.has('FOR EACH ROW'));
+});
+
+test('construct analyzer does not misclassify BULK COLLECT as SELECT ... INTO ... FROM ...', () => {
+  const sql = [
+    'CREATE OR REPLACE PROCEDURE analyze_driver_efficiency (',
+    '    p_threshold IN NUMBER',
+    ') AS',
+    '    TYPE rec_driver_perf IS RECORD (driver_id NUMBER, total_distance NUMBER);',
+    '    TYPE tbl_driver_perf IS TABLE OF rec_driver_perf;',
+    '    lt_driver_data tbl_driver_perf;',
+    'BEGIN',
+    '    SELECT d.driver_id, SUM(NVL(del.delivery_distance_meters, 0))',
+    '    BULK COLLECT',
+    '    INTO lt_driver_data',
+    '    FROM delivery_center.drivers d',
+    '    LEFT JOIN delivery_center.deliveries del ON d.driver_id = del.driver_id',
+    '    GROUP BY d.driver_id;',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const constructs = new Set(analyzeConstructs(sql));
+
+  assert.ok(constructs.has('BULK COLLECT INTO'));
+  assert.ok(!constructs.has('SELECT ... INTO ... FROM ...'));
+});
+
 test('construct analyzer distinguishes ELSIF-with-ELSE from ELSIF-without-ELSE and detects nested blocks', () => {
   const sql = [
     'CREATE OR REPLACE PROCEDURE sp_commit_bowling_summary (',
@@ -279,6 +324,24 @@ test('construct analyzer detects IF ... THEN ... ELSE ... END IF and plain JOIN 
   assert.ok(constructs.has('IF ... THEN ... ELSE ... END IF'));
   assert.ok(!constructs.has('IF ... THEN ... END IF'));
   assert.ok(constructs.has('JOIN ... ON ...'));
+});
+
+test('reasoning analyzer detects Data Manipulation for aliased UPDATE ... SET statements', () => {
+  const sql = [
+    'DECLARE',
+    '  lv_count NUMBER := 0;',
+    'BEGIN',
+    '  UPDATE delivery_center.orders o',
+    "     SET o.order_status = 'DATA_ERROR'",
+    '   WHERE o.order_id = 1;',
+    '  lv_count := lv_count + 1;',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const reasoning = new Set(analyzeReasoningTypes(sql));
+
+  assert.ok(reasoning.has('Data Manipulation'));
 });
 
 test('construct analyzer does not treat WHILE loops as generic LOOP constructs', () => {
@@ -601,4 +664,90 @@ test('analysis normalization does not treat double hyphens inside string literal
   for (const label of ['Exception Handling', 'Control Flow', 'Iterative']) {
     assert.ok(reasoningTypes.has(label), `expected ${label} to remain visible after normalization`);
   }
+});
+
+test('trigger analyzers include UPDATE OF target tables, detect :OLD. ... usage, and avoid DML false positives from trigger headers', () => {
+  const schema = {
+    database: 'DELIVERY_CENTER',
+    _schema_definition: { column_format: ['name'] },
+    tables: {
+      PAYMENTS: {
+        columns: [['PAYMENT_ID'], ['PAYMENT_METHOD'], ['PAYMENT_ORDER_ID']],
+      },
+      ORDERS: {
+        columns: [['ORDER_ID'], ['STORE_ID']],
+      },
+      STORES: {
+        columns: [['STORE_ID'], ['HUB_ID']],
+      },
+      HUBS: {
+        columns: [['HUB_ID'], ['HUB_NAME']],
+      },
+    },
+  };
+
+  const sql = [
+    'CREATE OR REPLACE TRIGGER trg_audit_payment_method',
+    'AFTER UPDATE OF payment_method ON delivery_center.payments',
+    'FOR EACH ROW',
+    'WHEN (OLD.payment_method != NEW.payment_method)',
+    'DECLARE',
+    '    lv_hub_name VARCHAR2(255);',
+    'BEGIN',
+    '    SELECT h.hub_name',
+    '      INTO lv_hub_name',
+    '      FROM delivery_center.orders o',
+    '      JOIN delivery_center.stores s ON o.store_id = s.store_id',
+    '      JOIN delivery_center.hubs h ON s.hub_id = h.hub_id',
+    '     WHERE o.order_id = :NEW.payment_order_id;',
+    'EXCEPTION',
+    '    WHEN OTHERS THEN',
+    "        DBMS_OUTPUT.PUT_LINE('Unexpected error occurred');",
+    'END;',
+    '/',
+  ].join('\n');
+
+  const tables = new Set(analyzeTables(sql, schema));
+  const constructs = new Set(analyzeConstructs(sql));
+  const reasoning = new Set(analyzeReasoningTypes(sql));
+
+  assert.ok(tables.has('PAYMENTS'));
+  assert.ok(tables.has('ORDERS'));
+  assert.ok(tables.has('STORES'));
+  assert.ok(tables.has('HUBS'));
+  assert.ok(constructs.has(':OLD. ...'));
+  assert.ok(constructs.has('WHEN (...)'));
+  assert.ok(!reasoning.has('Data Manipulation'));
+  assert.ok(reasoning.has('Event-Driven Logic'));
+});
+
+test('construct analyzer detects LEAST() and does not emit generic IN for anonymous loop-only usage', () => {
+  const procedureSql = [
+    'CREATE OR REPLACE PROCEDURE analyze_driver_efficiency (',
+    '    p_threshold IN NUMBER',
+    ') AS',
+    'BEGIN',
+    '    FOR i IN 1..LEAST(10, 50) LOOP',
+    '        NULL;',
+    '    END LOOP;',
+    'END;',
+    '/',
+  ].join('\n');
+  const anonymousSql = [
+    'DECLARE',
+    '  lv_value NUMBER := 1;',
+    'BEGIN',
+    '  FOR rec_order IN (SELECT 1 AS order_id FROM dual) LOOP',
+    '    lv_value := rec_order.order_id;',
+    '  END LOOP;',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const procedureConstructs = new Set(analyzeConstructs(procedureSql));
+  const anonymousConstructs = new Set(analyzeConstructs(anonymousSql));
+
+  assert.ok(procedureConstructs.has('LEAST()'));
+  assert.ok(procedureConstructs.has('IN'));
+  assert.ok(!anonymousConstructs.has('IN'));
 });

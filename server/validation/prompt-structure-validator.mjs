@@ -870,7 +870,8 @@ function validateRequirementEntries(taskId, turnNumber, lines, index, sourceName
       continue;
     }
     const prefixes = REQUIREMENT_NAMING_RULES[requirementType];
-    const valid = prefixes.some((prefix) => name.toLowerCase().startsWith(prefix));
+    const implementedExactName = newProgramUnits.some(([kind, unitName]) => kind.startsWith(requirementType) && unitName === name);
+    const valid = implementedExactName || prefixes.some((prefix) => name.toLowerCase().startsWith(prefix));
     const item = `Requirement Naming: ${label}`;
     if (valid) {
       results.push(createPass(VALIDATOR_NAMES.promptStructure, taskId, turnNumber, item, 'naming_convention_valid', sourceName));

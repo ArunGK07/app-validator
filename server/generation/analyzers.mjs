@@ -16,7 +16,7 @@ export function analyzeTables(codeText, schema) {
         matched.add(tableLookup[candidate]);
       }
     }
-    for (const match of String(sqlText).matchAll(/\b(?:BEFORE|AFTER|INSTEAD\s+OF)\s+(?:INSERT|UPDATE|DELETE)(?:\s+OR\s+(?:INSERT|UPDATE|DELETE))*\s+ON\s+([A-Z0-9_$#".]+)/gi)) {
+    for (const match of String(sqlText).matchAll(/\b(?:BEFORE|AFTER|INSTEAD\s+OF)\s+(?:INSERT|UPDATE|DELETE)(?:\s+OR\s+(?:INSERT|UPDATE|DELETE))*(?:\s+OF\s+[A-Z0-9_$#".,\s]+)?\s+ON\s+([A-Z0-9_$#".]+)/gi)) {
       const candidate = normalizeIdentifier(match[1]).split('.').at(-1);
       if (tableLookup[candidate]) {
         matched.add(tableLookup[candidate]);

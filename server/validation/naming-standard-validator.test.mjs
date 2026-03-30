@@ -106,4 +106,64 @@ test('runNamingStandardValidator compiles anonymous DECLARE blocks via a synthet
   }
 });
 
+test('runNamingStandardValidator allows prompt-required top-level object names without prefix rewriting', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-naming-validator-prompt-name-'));
+  const taskDir = join(root, '25002');
+  const metadata = {
+    id: 25002,
+    num_turns: 1,
+    dataset: 'world_bank_wdi',
+    database: 'bigquery-public-data',
+  };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '25002_turn1_1user.txt'),
+      [
+        'Validate one prompt-required routine name.',
+        'Requirements:',
+        'Procedure Name:',
+        'calculate_regional_hub_metrics',
+        '',
+        'Parameters:',
+        '\tp_city_name - IN - VARCHAR2 -- city name to analyze',
+        '',
+        'Output:',
+        '\tStarting Message: Starting analysis for city: [city_name]',
+        '',
+        'Exception Handling:',
+        '\tOther Exception : Unexpected error occurred',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '25002_turn1_4referenceAnswer.sql'),
+      [
+        'CREATE OR REPLACE PROCEDURE calculate_regional_hub_metrics(',
+        '  p_city_name IN VARCHAR2',
+        ') IS',
+        'BEGIN',
+        '  NULL;',
+        'EXCEPTION',
+        '  WHEN OTHERS THEN',
+        '    NULL;',
+        'END;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const results = await runNamingStandardValidator('25002', taskDir, metadata, {
+      connect: async () => createExecuteOnlyConnectionStub(),
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].status, 'PASS');
+    assert.equal(results[0].item, 'Naming Standard');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 

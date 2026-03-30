@@ -17,6 +17,7 @@ const PROGRAM_PREFIX_RULES = {
   TRIGGER: 'trg_',
 };
 const CREATE_OBJ_RE = /\bCREATE\s+(?:OR\s+REPLACE\s+)?(PACKAGE(?:\s+BODY)?|TYPE(?:\s+BODY)?|TRIGGER|PROCEDURE|FUNCTION)\s+((?:"?[\w$#]+"?\.)?"?[\w$#]+"?)/i;
+const LEGACY_PROMPT_OBJECT_RE = /^\s*Procedure\s+name\s*\/\s*Package\s+name\s*\/\s*function\s+name\s*:\s*(.+?)\s*$/gim;
 const TMP_PREFIX = 'TMP_VALIDATE_';
 
 function normalizeObjectName(name) {
@@ -206,6 +207,44 @@ function suggestRename(name, type, message) {
   return 'rename the identifier to satisfy the naming standard';
 }
 
+function extractPromptDeclaredProgramNames(promptText) {
+  const declaredNames = new Set();
+  const lines = String(promptText ?? '').split(/\r?\n/);
+
+  for (const match of String(promptText ?? '').matchAll(LEGACY_PROMPT_OBJECT_RE)) {
+    const value = String(match[1] ?? '').trim();
+    if (value) {
+      declaredNames.add(normalizeObjectName(value));
+    }
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (/^Anonymous Block:$/i.test(trimmed)) {
+      declaredNames.add('ANONYMOUS BLOCK');
+      continue;
+    }
+
+    if (!/^(Procedure|Function|Package|Trigger|Object) Name:$/i.test(trimmed)) {
+      continue;
+    }
+
+    for (let lookahead = index + 1; lookahead < lines.length; lookahead += 1) {
+      const value = lines[lookahead].trim();
+      if (!value) {
+        continue;
+      }
+      if (/:$/.test(value)) {
+        break;
+      }
+      declaredNames.add(normalizeObjectName(value));
+      break;
+    }
+  }
+
+  return declaredNames;
+}
+
 export async function runNamingStandardValidator(taskId, taskDir, metadata, dependencies = {}) {
   const validatorName = VALIDATOR_NAMES.namingStandard;
   const numTurns = Number.parseInt(String(metadata?.num_turns ?? 0), 10);
@@ -240,6 +279,7 @@ export async function runNamingStandardValidator(taskId, taskDir, metadata, depe
 
     for (let turnNumber = 1; turnNumber <= numTurns; turnNumber += 1) {
       const artifact = await loadTurnTextArtifact(taskDir, 'turn_reference_answer_file', taskId, turnNumber);
+      const promptArtifact = await loadTurnTextArtifact(taskDir, 'turn_user_file', taskId, turnNumber);
       if (!artifact.text) {
         results.push(createFail(validatorName, taskId, turnNumber, 'Reference Answer Artifact', 'missing_artifact', {
           expected: `reference answer file for turn ${turnNumber} must exist`,
@@ -252,6 +292,7 @@ export async function runNamingStandardValidator(taskId, taskDir, metadata, depe
 
       try {
         const [objectName, objectType] = await compileFile(executor, artifact.text, tempObjectName(artifact.fileName));
+        const promptDeclaredNames = extractPromptDeclaredProgramNames(promptArtifact.text);
         const identifierResult = await executor.execute(
           `SELECT name, type, usage, line, col, usage_id, usage_context_id
            FROM user_identifiers
@@ -266,7 +307,10 @@ export async function runNamingStandardValidator(taskId, taskDir, metadata, depe
         const iteratorIds = new Set((iteratorResult.rows ?? []).map((row) => row[0]));
         const violations = [];
 
-        if (PROGRAM_PREFIX_RULES[objectType] && !objectName.toLowerCase().startsWith(PROGRAM_PREFIX_RULES[objectType])) {
+        const promptExplicitlyRequiresObjectName = promptDeclaredNames.has(objectName);
+        if (PROGRAM_PREFIX_RULES[objectType]
+          && !objectName.toLowerCase().startsWith(PROGRAM_PREFIX_RULES[objectType])
+          && !promptExplicitlyRequiresObjectName) {
           violations.push({
             type: objectType,
             name: objectName,

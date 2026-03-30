@@ -31,7 +31,7 @@ const RAW_REASONING_TYPE_CATALOG = [
   entry('Data Retrieval', [/\bSELECT\b[\s\S]{0,300}?\bFROM\b/i]),
   entry('Iterative', [/\b(?:FOR\b[\s\S]{0,1200}?\bLOOP\b|WHILE\b[\s\S]{0,1200}?\bLOOP\b|(?:^|\s)LOOP\b)/i]),
   entry('Control Flow', [/\b(?:IF\b[\s\S]{0,2000}?\bTHEN\b|CASE\b[\s\S]{0,2000}?\bWHEN\b|EXIT(?:\s+WHEN)?|CONTINUE(?:\s+WHEN)?|GOTO|RETURN\b)\b/i]),
-  entry('Data Manipulation', [/\b(?:INSERT\s+INTO|UPDATE\b|DELETE\s+FROM|MERGE\s+INTO)\b/i]),
+  entry('Data Manipulation', [/\b(?:INSERT\s+INTO|UPDATE\s+[A-Z0-9_$#".]+(?:\s+[A-Z0-9_$#"]+)?\s+SET|DELETE\s+FROM|MERGE\s+INTO)\b/i]),
   entry('Transaction Management', [/\b(?:COMMIT|ROLLBACK|SAVEPOINT|SET\s+TRANSACTION|PRAGMA\s+AUTONOMOUS_TRANSACTION)\b/i]),
   entry('Dynamic SQL', [/\b(?:EXECUTE\s+IMMEDIATE|DBMS_SQL|OPEN\s+\w+\s+FOR)\b/i]),
   entry('Performance & Bulk Reasoning', [/\b(?:BULK\s+COLLECT\s+INTO|FORALL\b|LIMIT\b)\b/i]),
