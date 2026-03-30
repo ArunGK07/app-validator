@@ -4,6 +4,7 @@ import { URL, URLSearchParams } from 'node:url';
 
 import { resolveAuthorizationHeader } from './auth-header.mjs';
 import { createLogger, isBackendDebugEnabled, sanitizeHeaders } from './logger.mjs';
+import { repairTaskOutputArtifactsFromExistingOutput } from './task-output-fetcher.mjs';
 import { extendRuntimeConfigWithWorkflowDefaults } from './task-workflows.mjs';
 import { getSchemaCacheDir, getTaskOutputDir } from './workspace-config.mjs';
 import { resolveTaskRouting } from './schema-db-config.mjs';
@@ -420,6 +421,7 @@ export async function fetchPromptById(id, env = process.env) {
 export async function listTaskOutputFiles(taskId, config) {
   try {
     const folderPath = resolveTaskOutputFolder(taskId, config);
+    await repairTaskOutputArtifactsFromExistingOutput(taskId, config);
     const files = await collectTaskOutputFiles(taskId, folderPath, '', config);
 
     return {

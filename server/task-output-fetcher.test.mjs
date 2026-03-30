@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -249,6 +249,285 @@ test('fetchTaskOutputArtifacts normalizes public-procedure labels and numbered p
         'Parameters:',
         '  p_style_id - IN - NUMBER -- entertainer style identifier used to filter engagements for auditing',
         '  p_threshold - IN - NUMBER -- contract price threshold used to flag under-priced engagements',
+        '',
+      ].join('\n'),
+    );
+  } finally {
+    global.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('fetchTaskOutputArtifacts keeps inline section content and canonicalizes anonymous block names', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-fetch-output-'));
+  const originalFetch = global.fetch;
+
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        data: {
+          prompt: {
+            id: 'prompt-24500',
+            type: 'PROMPT',
+            formData: {
+              feedback: null,
+            },
+            promptTurns: [
+              {
+                promptIndex: 0,
+                promptEvaluationFeedback: {
+                  promptTurnEvaluation: [
+                    {
+                      name: 'User',
+                      value: [
+                        'Create an anonymous PL/SQL block that retrieves and displays the department name for a given department ID.',
+                        '',
+                        'Requirements:',
+                        'Anonymous Block Name: Anonymous PL/SQL block.',
+                        'Parameters: Accept a department ID as an input value.',
+                        'Output: Display the department name in the following format: "Department Name: <Department_Name>"',
+                        'Exception Handling: If the department ID is NULL, print exactly: "Error: Department ID cannot be NULL."',
+                      ].join('\n'),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+  try {
+    await fetchTaskOutputArtifacts(
+      {
+        taskId: '24500',
+        collabLink: 'https://rlhf-v3.turing.com/prompt/prompt-24500',
+      },
+      {
+        cookie: 'cookie=value',
+        taskOutputDir: root,
+        rlhfGraphqlUrl: 'https://rlhf-api.turing.com/graphql',
+      },
+    );
+
+    assert.equal(
+      await readFile(join(root, '24500', '24500_turn1_1user.txt'), 'utf8'),
+      [
+        'Create an anonymous PL/SQL block that retrieves and displays the department name for a given department ID.',
+        '',
+        'Requirements:',
+        'Anonymous Block:',
+        'Parameters:',
+        '  Accept a department ID as an input value.',
+        'Output:',
+        '  Display the department name in the following format: "Department Name: <Department_Name>"',
+        'Exception Handling:',
+        '  If the department ID is NULL, print exactly : "Error: Department ID cannot be NULL."',
+        '',
+      ].join('\n'),
+    );
+  } finally {
+    global.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('fetchTaskOutputArtifacts preserves existing local extracted artifacts during live fetch', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-fetch-output-'));
+  const originalFetch = global.fetch;
+
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        data: {
+          prompt: {
+            id: 'prompt-15825',
+            type: 'PROMPT',
+            formData: {
+              feedback: null,
+            },
+            promptTurns: [
+              {
+                promptIndex: 0,
+                promptEvaluationFeedback: {
+                  promptTurnEvaluation: [
+                    {
+                      name: 'User',
+                      value: [
+                        'Create an anonymous block that calculates and displays the total payment amount for a specific payment method.',
+                        '',
+                        'Requirements:',
+                        'Anonymous Block Name: Anonymous PL/SQL block.',
+                        '',
+                        'Parameters:',
+                        '',
+                        'Output:',
+                        '',
+                        'Exception Handling:',
+                      ].join('\n'),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+  try {
+    const taskDir = join(root, '15825');
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '15825_turn1_1user.txt'),
+      [
+        'Existing canonical prompt.',
+        '',
+        'Requirements:',
+        'Anonymous Block:',
+        'Parameters:',
+        '  v_payment_method - LOCAL - VARCHAR2(100) -- hardcoded payment method used to filter rows',
+        'Output:',
+        '  Payment Method: <value>',
+        'Exception Handling:',
+        '  Other Exception : Unexpected error occurred',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const result = await fetchTaskOutputArtifacts(
+      {
+        taskId: '15825',
+        collabLink: 'https://rlhf-v3.turing.com/prompt/prompt-15825',
+      },
+      {
+        cookie: 'cookie=value',
+        taskOutputDir: root,
+        rlhfGraphqlUrl: 'https://rlhf-api.turing.com/graphql',
+      },
+    );
+
+    assert.deepEqual(result.generatedFiles, []);
+    assert.equal(
+      await readFile(join(root, '15825', '15825_turn1_1user.txt'), 'utf8'),
+      [
+        'Existing canonical prompt.',
+        '',
+        'Requirements:',
+        'Anonymous Block:',
+        'Parameters:',
+        '  v_payment_method - LOCAL - VARCHAR2(100) -- hardcoded payment method used to filter rows',
+        'Output:',
+        '  Payment Method: <value>',
+        'Exception Handling:',
+        '  Other Exception : Unexpected error occurred',
+        '',
+      ].join('\n'),
+    );
+  } finally {
+    global.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('fetchTaskOutputArtifacts repairs broken local user prompts when incoming content is better', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-fetch-output-'));
+  const originalFetch = global.fetch;
+
+  global.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        data: {
+          prompt: {
+            id: 'prompt-15835',
+            type: 'PROMPT',
+            formData: {
+              feedback: null,
+            },
+            promptTurns: [
+              {
+                promptIndex: 0,
+                promptEvaluationFeedback: {
+                  promptTurnEvaluation: [
+                    {
+                      name: 'User',
+                      value: [
+                        'Write an anonymous block that analyzes fatal traffic collisions for a specific county.',
+                        '',
+                        'Requirements:',
+                        'Anonymous Block Name: Anonymous PL/SQL block.',
+                        '',
+                        "Parameters: Declare gc_county_name as CONSTANT VARCHAR2(100) := 'los angeles'. Declare gc_severity_fatal as CONSTANT VARCHAR2(20) := 'fatal'.",
+                        '',
+                        "Output: Print exactly: '=== Fatal Collision Analysis ===' then 'County: <value>'.",
+                        '',
+                        "Exception Handling: If gc_county_name is NULL print exactly: 'ERROR: County name cannot be NULL.' and terminate.",
+                      ].join('\n'),
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+  try {
+    const taskDir = join(root, '15835');
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '15835_turn1_1user.txt'),
+      [
+        'Write an anonymous block that analyzes fatal traffic collisions for a specific county.',
+        '',
+        'Requirements:',
+        'Anonymous Block Name: Anonymous PL/SQL block.',
+        '',
+        'Parameters:',
+        '',
+        'Output:',
+        '',
+        'Exception Handling:',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const result = await fetchTaskOutputArtifacts(
+      {
+        taskId: '15835',
+        collabLink: 'https://rlhf-v3.turing.com/prompt/prompt-15835',
+      },
+      {
+        cookie: 'cookie=value',
+        taskOutputDir: root,
+        rlhfGraphqlUrl: 'https://rlhf-api.turing.com/graphql',
+      },
+    );
+
+    assert.deepEqual(result.generatedFiles, ['15835_turn1_1user.txt']);
+    assert.equal(
+      await readFile(join(root, '15835', '15835_turn1_1user.txt'), 'utf8'),
+      [
+        'Write an anonymous block that analyzes fatal traffic collisions for a specific county.',
+        '',
+        'Requirements:',
+        'Anonymous Block:',
+        '',
+        'Parameters:',
+        "  Declare gc_county_name as CONSTANT VARCHAR2(100) := 'los angeles'. Declare gc_severity_fatal as CONSTANT VARCHAR2(20) := 'fatal'.",
+        '',
+        'Output:',
+        "  Print exactly: '=== Fatal Collision Analysis ===' then 'County: <value>'.",
+        '',
+        'Exception Handling:',
+        "  If gc_county_name is NULL print exactly : 'ERROR: County name cannot be NULL.' and terminate.",
         '',
       ].join('\n'),
     );

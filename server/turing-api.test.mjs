@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -717,6 +717,96 @@ test('listTaskOutputFiles returns sorted files from the configured task folder i
     );
     assert.equal(report.files[0].extension, 'log');
     assert.equal(report.files[1].extension, 'txt');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('listTaskOutputFiles repairs broken prompt artifacts from existing_output before returning files', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-report-'));
+  const taskDir = join(root, '15835');
+
+  try {
+    await mkdir(taskDir);
+    await writeFile(
+      join(taskDir, '15835_turn1_1user.txt'),
+      [
+        'Write an anonymous block that analyzes fatal traffic collisions for a specific county.',
+        '',
+        'Requirements:',
+        'Anonymous Block Name: Anonymous PL/SQL block.',
+        '',
+        'Parameters:',
+        '',
+        'Output:',
+        '',
+        'Exception Handling:',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(
+      join(taskDir, '15835_existing_output.json'),
+      JSON.stringify(
+        {
+          response: {
+            data: {
+              prompt: {
+                promptTurns: [
+                  {
+                    promptIndex: 0,
+                    promptEvaluationFeedback: {
+                      promptTurnEvaluation: [
+                        {
+                          name: 'user',
+                          value: [
+                            'Write an anonymous block that analyzes fatal traffic collisions for a specific county.',
+                            '',
+                            'Requirements:',
+                            'Anonymous Block Name: Anonymous PL/SQL block.',
+                            '',
+                            "Parameters: Declare gc_county_name as CONSTANT VARCHAR2(100) := 'los angeles'. Declare gc_severity_fatal as CONSTANT VARCHAR2(20) := 'fatal'.",
+                            '',
+                            "Output: Print exactly: '=== Fatal Collision Analysis ===' then 'County: <value>'.",
+                            '',
+                            "Exception Handling: If gc_county_name is NULL print exactly: 'ERROR: County name cannot be NULL.' and terminate.",
+                          ].join('\n'),
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const report = await listTaskOutputFiles('15835', { taskOutputDir: root });
+
+    assert.equal(report.taskId, '15835');
+    assert.equal(
+      await readFile(join(taskDir, '15835_turn1_1user.txt'), 'utf8'),
+      [
+        'Write an anonymous block that analyzes fatal traffic collisions for a specific county.',
+        '',
+        'Requirements:',
+        'Anonymous Block:',
+        '',
+        'Parameters:',
+        "  Declare gc_county_name as CONSTANT VARCHAR2(100) := 'los angeles'. Declare gc_severity_fatal as CONSTANT VARCHAR2(20) := 'fatal'.",
+        '',
+        'Output:',
+        "  Print exactly: '=== Fatal Collision Analysis ===' then 'County: <value>'.",
+        '',
+        'Exception Handling:',
+        "  If gc_county_name is NULL print exactly : 'ERROR: County name cannot be NULL.' and terminate.",
+        '',
+      ].join('\n'),
+    );
+    assert.ok(report.files.some((file) => file.name === '15835_turn1_1user.txt'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

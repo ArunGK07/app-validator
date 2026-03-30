@@ -1,4 +1,4 @@
-import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import { resolve as pathResolve, relative as pathRelative } from 'node:path';
 
 import { resolveAuthorizationHeader } from './auth-header.mjs';
@@ -84,6 +84,28 @@ export async function fetchTaskOutputArtifacts(task, config, dependencies = {}) 
     schemaError: schemaResult.schemaError,
     graphqlErrors: Array.isArray(hydratedResponsePayload.errors) ? hydratedResponsePayload.errors.length : 0,
   };
+}
+
+export async function repairTaskOutputArtifactsFromExistingOutput(taskId, config) {
+  try {
+    const taskDir = await ensureTaskOutputFolder(taskId, config);
+    const existingOutputPath = pathResolve(taskDir, formatTaskOutputName('existing_output_file', { taskId }));
+    const source = await readFile(existingOutputPath, 'utf8');
+    const payload = JSON.parse(source);
+    const responsePayload = isRecord(payload) ? payload.response : null;
+
+    if (!isRecord(responsePayload)) {
+      return [];
+    }
+
+    return extractPromptTurnEvaluations(taskId, responsePayload, config);
+  } catch (error) {
+    logger.debug('Skipped local task output repair from existing_output', {
+      taskId,
+      message: error instanceof Error ? error.message : 'Unknown repair error',
+    });
+    return [];
+  }
 }
 
 async function fetchCollabLinkFromReviews(taskId, config) {
@@ -297,7 +319,7 @@ async function extractPromptTurnEvaluations(taskId, responsePayload, config) {
   }
 
   const taskDir = await ensureTaskOutputFolder(taskId, config);
-  await clearExistingExtractedFiles(taskDir, taskId);
+  await clearLegacyExtractedFiles(taskDir, taskId);
 
   const writtenFiles = [];
 
@@ -305,6 +327,11 @@ async function extractPromptTurnEvaluations(taskId, responsePayload, config) {
     const fileName = resolveExtractedOutputName(taskId, entry.turnNumber, entry.name);
     const filePath = pathResolve(taskDir, fileName);
     const content = normalizeExtractedContent(fileName, `${entry.values.join('\n\n').replace(/\s+$/u, '')}\n`);
+
+    if (await shouldPreserveExistingArtifact(filePath, content)) {
+      logger.debug('Preserving existing local artifact during live fetch', { taskId, fileName });
+      continue;
+    }
 
     await writeFile(filePath, content, 'utf8');
     writtenFiles.push(fileName);
@@ -330,33 +357,11 @@ function normalizeLegacyUserPrompt(content) {
   for (const line of lines) {
     const trimmed = line.trim();
 
-    if (/^Requirements\s*:/i.test(trimmed)) {
-      section = 'requirements';
-      normalized.push('Requirements:');
-      continue;
-    }
-
-    if (/^Parameters\s*:/i.test(trimmed)) {
-      section = 'parameters';
-      normalized.push('Parameters:');
-      continue;
-    }
-
-    if (/^Output\s*:/i.test(trimmed)) {
-      section = 'output';
-      normalized.push('Output:');
-      continue;
-    }
-
-    if (/^Sorting\s+Order\s*:/i.test(trimmed)) {
-      section = 'sorting_order';
-      normalized.push('Sorting Order:');
-      continue;
-    }
-
-    if (/^Exception\s+Handling\s*:/i.test(trimmed)) {
-      section = 'exception_handling';
-      normalized.push('Exception Handling:');
+    const sectionHeader = matchLegacySectionHeader(trimmed);
+    if (sectionHeader) {
+      section = sectionHeader.section;
+      normalized.push(sectionHeader.header);
+      appendNormalizedLegacySectionLine(normalized, section, sectionHeader.inlineContent, { isInlineSectionContent: true });
       continue;
     }
 
@@ -365,29 +370,8 @@ function normalizeLegacyUserPrompt(content) {
       continue;
     }
 
-    if (section === 'requirements') {
-      const inlineRequirementMatch = trimmed.match(/^(Public Procedure Name|Procedure Name|Function Name|Package Name|Trigger Name|Object Name)\s*:\s*(.+)$/i);
-      if (inlineRequirementMatch) {
-        normalized.push(`  ${normalizeRequirementLabel(inlineRequirementMatch[1])}:`);
-        normalized.push(`  ${inlineRequirementMatch[2].trim()}`);
-        continue;
-      }
-    }
-
-    if (section === 'parameters') {
-      const parameterLine = normalizeLegacyParameterLine(trimmed);
-      if (parameterLine) {
-        normalized.push(`  ${parameterLine}`);
-        continue;
-      }
-    }
-
-    if (section === 'exception_handling') {
-      const exceptionLine = normalizeLegacyExceptionLine(trimmed);
-      if (exceptionLine) {
-        normalized.push(`  ${exceptionLine}`);
-        continue;
-      }
+    if (appendNormalizedLegacySectionLine(normalized, section, trimmed)) {
+      continue;
     }
 
     normalized.push(line.replace(/\s+$/u, ''));
@@ -402,10 +386,104 @@ function normalizeRequirementLabel(label) {
     return 'Procedure Name';
   }
 
+  if (normalized === 'anonymous block name' || normalized === 'anonymous block') {
+    return 'Anonymous Block';
+  }
+
   return normalized
     .split(/\s+/)
     .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
     .join(' ');
+}
+
+function matchLegacySectionHeader(line) {
+  const sectionHeaders = [
+    { section: 'requirements', header: 'Requirements:', pattern: /^Requirements\s*:\s*(.*)$/i },
+    { section: 'parameters', header: 'Parameters:', pattern: /^Parameters\s*:\s*(.*)$/i },
+    { section: 'output', header: 'Output:', pattern: /^Output\s*:\s*(.*)$/i },
+    { section: 'sorting_order', header: 'Sorting Order:', pattern: /^Sorting\s+Order\s*:\s*(.*)$/i },
+    { section: 'exception_handling', header: 'Exception Handling:', pattern: /^Exception\s+Handling\s*:\s*(.*)$/i },
+  ];
+
+  for (const sectionHeader of sectionHeaders) {
+    const match = String(line).match(sectionHeader.pattern);
+    if (match) {
+      return {
+        section: sectionHeader.section,
+        header: sectionHeader.header,
+        inlineContent: match[1]?.trim() ?? '',
+      };
+    }
+  }
+
+  return null;
+}
+
+function appendNormalizedLegacySectionLine(normalized, section, line, options = {}) {
+  const trimmed = String(line ?? '').trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (section === 'requirements') {
+    const inlineRequirementMatch = trimmed.match(/^(Public Procedure Name|Procedure Name|Function Name|Package Name|Trigger Name|Object Name)\s*:\s*(.+)$/i);
+    if (inlineRequirementMatch) {
+      normalized.push(`  ${normalizeRequirementLabel(inlineRequirementMatch[1])}:`);
+      normalized.push(`  ${inlineRequirementMatch[2].trim()}`);
+      return true;
+    }
+
+    if (/^Anonymous\s+Block(?:\s+Name)?\s*:/i.test(trimmed)) {
+      normalized.push('Anonymous Block:');
+      return true;
+    }
+
+    if (options.isInlineSectionContent) {
+      normalized.push(`  ${trimmed}`);
+      return true;
+    }
+
+    return false;
+  }
+
+  if (section === 'parameters') {
+    const parameterLine = normalizeLegacyParameterLine(trimmed);
+    if (parameterLine) {
+      normalized.push(`  ${parameterLine}`);
+      return true;
+    }
+
+    if (options.isInlineSectionContent) {
+      normalized.push(`  ${trimmed}`);
+      return true;
+    }
+
+    return false;
+  }
+
+  if (section === 'exception_handling') {
+    const exceptionLine = normalizeLegacyExceptionLine(trimmed);
+    if (exceptionLine) {
+      normalized.push(`  ${exceptionLine}`);
+      return true;
+    }
+
+    if (options.isInlineSectionContent) {
+      normalized.push(`  ${trimmed}`);
+      return true;
+    }
+
+    return false;
+  }
+
+  if (section === 'output' || section === 'sorting_order') {
+    if (options.isInlineSectionContent) {
+      normalized.push(`  ${trimmed}`);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function normalizeLegacyParameterLine(line) {
@@ -425,10 +503,20 @@ function normalizeLegacyParameterLine(line) {
   const name = match[1].trim();
   const mode = (match[2] ?? 'IN').replace(/\s+/g, ' ').toUpperCase();
   const datatype = match[3].trim();
+
+  if (!match[2] && !looksLikeLegacyParameterDatatype(datatype)) {
+    return null;
+  }
+
   const comment = match[4]?.trim() || 'parameter value';
 
   return `${name} - ${mode} - ${datatype} -- ${comment}`;
 }
+
+function looksLikeLegacyParameterDatatype(value) {
+  return /^(?:[A-Za-z][A-Za-z0-9_$#]*\.){0,3}[A-Za-z][A-Za-z0-9_$#]*%(?:TYPE|ROWTYPE)\b|^(?:NUMBER|VARCHAR2|VARCHAR|CHAR|NCHAR|NVARCHAR2|DATE|TIMESTAMP|CLOB|BLOB|BOOLEAN|INTEGER|PLS_INTEGER|DECIMAL|FLOAT|RAW|ROWID|UROWID|SYS_REFCURSOR|REF\s+CURSOR|INTERVAL)\b/i.test(String(value).trim());
+}
+
 function normalizeLegacyExceptionLine(line) {
   const whenOthersMatch = line.match(/^WHEN\s+OTHERS\s*:\s*(.+)$/i);
   if (whenOthersMatch) {
@@ -442,16 +530,54 @@ function normalizeLegacyExceptionLine(line) {
 
   return `${genericMatch[1].trim()} : ${genericMatch[2].trim().replace(/\s+/g, ' ')}`;
 }
-async function clearExistingExtractedFiles(taskDir, taskId) {
+async function clearLegacyExtractedFiles(taskDir, taskId) {
   const entries = await readdir(taskDir, { withFileTypes: true });
-  const taskPattern = new RegExp(`^${escapeForRegex(taskId)}_turn\\d+_.+\\.(?:txt|sql)$`, 'i');
   const legacyPattern = new RegExp(`^existing_${escapeForRegex(taskId)}_.+\\.txt$`, 'i');
 
   await Promise.all(
     entries
-      .filter((entry) => entry.isFile() && (taskPattern.test(entry.name) || legacyPattern.test(entry.name)))
+      .filter((entry) => entry.isFile() && legacyPattern.test(entry.name))
       .map((entry) => unlink(pathResolve(taskDir, entry.name))),
   );
+}
+
+async function shouldPreserveExistingArtifact(filePath, incomingContent = '') {
+  try {
+    const existingContent = await readFile(filePath, 'utf8');
+
+    if (!existingContent.trim()) {
+      return false;
+    }
+
+    if (/_1user\.txt$/i.test(String(filePath))) {
+      if (isRepairableLegacyUserPrompt(existingContent)) {
+        return false;
+      }
+
+      if (looksLikeBrokenUserPrompt(existingContent) && !looksLikeBrokenUserPrompt(incomingContent)) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isRepairableLegacyUserPrompt(content) {
+  return /(^|\n)Anonymous Block Name\s*:/i.test(String(content)) || looksLikeBrokenUserPrompt(content);
+}
+
+function looksLikeBrokenUserPrompt(content) {
+  const text = String(content).replace(/\r/g, '');
+  const emptySectionPatterns = [
+    /(^|\n)Parameters:\s*(?:\n\s*)*(?=(?:Output:|Sorting Order:|Exception Handling:|$))/i,
+    /(^|\n)Output:\s*(?:\n\s*)*(?=(?:Sorting Order:|Exception Handling:|$))/i,
+    /(^|\n)Exception Handling:\s*(?:\n\s*)*$/i,
+  ];
+
+  return emptySectionPatterns.some((pattern) => pattern.test(text));
 }
 
 function resolveExtractedOutputName(taskId, turnNumber, rawName) {
