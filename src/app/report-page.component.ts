@@ -187,6 +187,8 @@ export class ReportPageComponent implements OnInit {
   actionMessage = '';
   loadingFetch = false;
   showFetchConfirm = false;
+  showPublishConfirm = false;
+  private pendingWorkflowAction: { action: TaskWorkflowAction; taskId: string } | null = null;
   editingConversation = false;
   runningAction: TaskWorkflowAction | null = null;
   lastActionResult: TaskWorkflowActionResult | null = null;
@@ -423,7 +425,6 @@ export class ReportPageComponent implements OnInit {
     }
 
     const taskId = this.taskId;
-    this.runningAction = action;
     this.actionError = '';
 
     if (action === 'publish') {
@@ -440,28 +441,45 @@ export class ReportPageComponent implements OnInit {
         if (this.isPublishBlocked(row)) {
           this.actionMessage = '';
           this.actionError = `Task ${taskId} is already in Completed status and cannot be published.`;
-          this.runningAction = null;
           return;
         }
       } catch (error) {
         if (this.taskId === taskId) {
           this.actionMessage = '';
           this.actionError = this.asErrorMessage(error);
-          this.runningAction = null;
         }
         return;
       }
+      // show custom publish confirmation modal
+      this.pendingWorkflowAction = { action, taskId };
+      this.showPublishConfirm = true;
+      // focus management of modal handled by template lifecycle if needed
+      return;
+    }
+    // For non-publish actions execute immediately
+    this.executeWorkflowAction(taskId, action);
+  }
 
-      const confirmed = globalThis.confirm(`Publish task ${taskId}? This cannot be undone from the UI.`);
-      if (!confirmed) {
-        if (this.taskId === taskId) {
-          this.actionMessage = '';
-          this.runningAction = null;
-        }
-        return;
-      }
+  cancelPublish(): void {
+    this.showPublishConfirm = false;
+    this.pendingWorkflowAction = null;
+    this.actionMessage = '';
+  }
+
+  doPublishConfirmed(): void {
+    const pending = this.pendingWorkflowAction;
+    if (!pending) {
+      this.showPublishConfirm = false;
+      return;
     }
 
+    this.showPublishConfirm = false;
+    this.pendingWorkflowAction = null;
+    this.executeWorkflowAction(pending.taskId, pending.action);
+  }
+
+  private executeWorkflowAction(taskId: string, action: TaskWorkflowAction): void {
+    this.runningAction = action;
     this.actionMessage = `${this.getActionLabel(action)} started for task ${taskId}.`;
 
     this.api

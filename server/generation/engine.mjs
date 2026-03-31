@@ -5,7 +5,7 @@ import { getSharedSchemaPath } from '../schema-cache.mjs';
 import { generateTaskSchemaArtifact } from '../schema-extractor.mjs';
 import { loadTaskMetadata, loadTurnTextArtifact } from '../validation/common.mjs';
 import { formatTaskArtifactName } from '../workspace-config.mjs';
-import { analyzeColumns, analyzeConstructs, analyzeReasoningTypes, analyzeTables, evaluatePlsqlConstructs, evaluateReasoningTypes, formatCommaLines } from './analyzers.mjs';
+import { analyzeColumns, analyzeConstructs, analyzeConstructsHighSignal, analyzeReasoningTypes, analyzeTables, evaluatePlsqlConstructs, evaluateReasoningTypes, formatCommaLines } from './analyzers.mjs';
 import { refreshTaskTestCases } from './testcase-runner.mjs';
 
 export async function runNativeGenerateOutputs(taskId, taskDir, logFilePath, config, dependencies = {}) {
@@ -60,7 +60,8 @@ export async function runNativeGenerateOutputs(taskId, taskDir, logFilePath, con
     }
 
     const constructEvaluations = evaluatePlsqlConstructs(codeArtifact.text);
-    const constructs = analyzeConstructs(codeArtifact.text);
+    // Use high-signal filtered constructs for published artifact (long-term noise reduction)
+    const constructs = analyzeConstructsHighSignal(codeArtifact.text);
     const constructsPath = join(taskDir, formatTaskArtifactName('turn_plsql_constructs_file', { taskId, turnNumber }));
     await writeFile(constructsPath, `${constructs.length ? formatCommaLines(constructs) : '[NO PL/SQL CONSTRUCTS DETECTED]'}\n`, 'utf8');
     artifacts.push(constructsPath);

@@ -84,6 +84,27 @@ export function analyzeConstructs(codeText) {
     .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
 }
 
+function _isHighSignalConstruct(label) {
+  if (!label || typeof label !== 'string') return false;
+  // Multi-token templates or templates with ellipsis, parentheses, or '%'
+  if (label.includes(' ') || label.includes('...') || label.includes('(') || label.includes('%') || label.includes(':') || label.includes('/')) {
+    return true;
+  }
+  // Single-word heuristics: treat short SQL operators as low-signal
+  const shortLower = label.trim().toLowerCase();
+  const lowSignalTokens = new Set(['in', 'and', 'is', 'as', 'on', 'by', 'to', 'set', 'desc', 'asc', 'or']);
+  if (lowSignalTokens.has(shortLower)) return false;
+  // Prefer words of length >= 5 as higher signal (COUNT, COMMIT, ROLLBACK etc.)
+  return label.trim().length >= 5;
+}
+
+export function analyzeConstructsHighSignal(codeText) {
+  const all = analyzeConstructs(codeText);
+  // Allow verbose override via env var
+  if (process.env.PLSQL_CONSTRUCT_VERBOSE === '1') return all;
+  return all.filter((label) => _isHighSignalConstruct(label));
+}
+
 export function evaluatePlsqlConstructs(codeText) {
   const normalized = buildConstructAnalysisText(codeText);
   const evaluations = PLSQL_CONSTRUCT_CATALOG.map((entry) => {
