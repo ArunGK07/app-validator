@@ -50,7 +50,6 @@ export class DashboardPageComponent implements OnInit {
   readonly columnFiltersForm = this.fb.nonNullable.group({
     batch: '',
     taskId: '',
-    schemaName: '',
     turnCount: '',
     complexity: '',
     businessStatus: '',
@@ -433,6 +432,29 @@ export class DashboardPageComponent implements OnInit {
     return Object.values(this.columnFiltersForm.getRawValue()).some((v) => v.trim());
   }
 
+  get uniqueTurnCounts(): string[] {
+    return [...new Set(this.rows.map((r) => r.turnCount).filter(Boolean))]
+      .sort((a, b) => Number(a) - Number(b));
+  }
+
+  get uniqueComplexities(): string[] {
+    const order = ['easy', 'medium', 'hard', 'unknown'];
+    return [...new Set(this.rows.map((r) => r.complexity).filter(Boolean))]
+      .sort((a, b) => {
+        const ai = order.indexOf(a.toLowerCase());
+        const bi = order.indexOf(b.toLowerCase());
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      });
+  }
+
+  get uniqueBusinessStatuses(): string[] {
+    return [...new Set(this.rows.map((r) => r.businessStatus).filter(Boolean))].sort();
+  }
+
+  get uniqueAssignedUsers(): string[] {
+    return [...new Set(this.rows.map((r) => r.assignedUser).filter(Boolean))].sort();
+  }
+
   clearColumnFilters(): void {
     this.columnFiltersForm.reset();
   }
@@ -441,24 +463,22 @@ export class DashboardPageComponent implements OnInit {
     const f = this.columnFiltersForm.getRawValue();
     const batch = f.batch.trim().toLowerCase();
     const taskId = f.taskId.trim().toLowerCase();
-    const schemaName = f.schemaName.trim().toLowerCase();
     const turnCount = f.turnCount.trim();
     const complexity = f.complexity.trim().toLowerCase();
     const businessStatus = f.businessStatus.trim().toLowerCase();
     const assignedUser = f.assignedUser.trim().toLowerCase();
 
-    if (!batch && !taskId && !schemaName && !turnCount && !complexity && !businessStatus && !assignedUser) {
+    if (!batch && !taskId && !turnCount && !complexity && !businessStatus && !assignedUser) {
       return rows;
     }
 
     return rows.filter((row) =>
       (!batch || row.batch.toLowerCase().includes(batch)) &&
       (!taskId || row.taskId.toLowerCase().includes(taskId)) &&
-      (!schemaName || row.schemaName.toLowerCase().includes(schemaName)) &&
       (!turnCount || row.turnCount === turnCount) &&
       (!complexity || row.complexity.toLowerCase() === complexity) &&
-      (!businessStatus || row.businessStatus.toLowerCase().includes(businessStatus)) &&
-      (!assignedUser || row.assignedUser.toLowerCase().includes(assignedUser)),
+      (!businessStatus || row.businessStatus === businessStatus) &&
+      (!assignedUser || row.assignedUser === assignedUser),
     );
   }
 

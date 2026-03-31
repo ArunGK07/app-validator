@@ -958,22 +958,73 @@ async function buildTaskOutputTaskRow(taskId, folderPath) {
   const schema = resolveTaskSchemaInfo(metadata ?? {});
   const metadataRecord = metadata ?? {};
 
+  const validationStatus = await readTaskOutputValidationStatus(taskId, folderPath);
+  const assignedUser = inferAssignedUserFromMetadata(metadataRecord);
+
   return {
     taskId,
     metadata,
     metadataPreview: summarizeMetadata(metadata),
     status: 'Task Output',
-    businessStatus: 'Available Locally',
+    businessStatus: validationStatus,
     turnCount: inferTurnCount(metadata),
     complexity: inferComplexity(metadata),
     batchId: '',
     batch: 'Task Output',
     schemaName: schema.schemaName || 'Unknown',
-    assignedUser: 'Local folder',
+    assignedUser,
     promptId: findPromptIdentifier(metadataRecord) ?? undefined,
     collabLink: resolveCollabLink(metadataRecord, taskId),
     source: 'task-output',
   };
+}
+
+async function readTaskOutputValidationStatus(taskId, folderPath) {
+  try {
+    const validationDir = join(folderPath, '_validation');
+    const entries = await readdir(validationDir, { withFileTypes: true });
+    const masterFile = entries.find(
+      (e) => e.isFile() && e.name.toLowerCase().startsWith('master_validator_'),
+    );
+
+    if (!masterFile) {
+      return 'Not Validated';
+    }
+
+    const content = await readFile(join(validationDir, masterFile.name), 'utf8');
+    const parsed = coerceStructuredValue(content);
+    const summary = isRecord(parsed) ? parsed.summary : null;
+
+    if (!isRecord(summary)) {
+      return 'Not Validated';
+    }
+
+    const failed = typeof summary.tasksFailed === 'number' ? summary.tasksFailed : typeof summary.validatorsFailed === 'number' ? summary.validatorsFailed : null;
+
+    if (failed === null) {
+      return 'Validated';
+    }
+
+    return failed === 0 ? 'Passed' : 'Failed';
+  } catch {
+    return 'Not Validated';
+  }
+}
+
+function inferAssignedUserFromMetadata(metadata) {
+  if (!isRecord(metadata)) {
+    return '';
+  }
+
+  const candidate =
+    asString(metadata.currentUserName) ||
+    asString(metadata.assignedUser) ||
+    asString(metadata.user) ||
+    asString(metadata.userName) ||
+    asString(metadata.annotator) ||
+    asString(metadata.labeler);
+
+  return candidate || '';
 }
 
 async function readTaskOutputMetadata(taskId, folderPath) {

@@ -141,17 +141,6 @@
               ></span>
             </button>
           </th>
-          <th [attr.aria-sort]="getAriaSort('schemaName')">
-            <button class="sort-button" type="button" (click)="sortBy('schemaName')">
-              <span>Schema Name</span>
-              <span
-                class="sort-indicator"
-                [class.sort-indicator--active]="isSortActive('schemaName')"
-                [class.sort-indicator--desc]="isSortDescending('schemaName')"
-                aria-hidden="true"
-              ></span>
-            </button>
-          </th>
           <th [attr.aria-sort]="getAriaSort('turnCount')">
             <button class="sort-button" type="button" (click)="sortBy('turnCount')">
               <span>Num of Turns</span>
@@ -202,20 +191,31 @@
         <tr class="filter-row">
           <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.batch" type="search" placeholder="Filter…" aria-label="Filter batch" /></th>
           <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.taskId" type="search" placeholder="Filter…" aria-label="Filter task ID" /></th>
-          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.schemaName" type="search" placeholder="Filter…" aria-label="Filter schema name" /></th>
-          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.turnCount" type="search" placeholder="Filter…" aria-label="Filter turn count" /></th>
+          <th>
+            <select class="col-filter-input" [formControl]="columnFiltersForm.controls.turnCount" aria-label="Filter turn count">
+              <option value="">All</option>
+              <option *ngFor="let v of uniqueTurnCounts" [value]="v">{{ v }}</option>
+            </select>
+          </th>
           <th>
             <select class="col-filter-input" [formControl]="columnFiltersForm.controls.complexity" aria-label="Filter complexity">
               <option value="">All</option>
-              <option value="easy">Easy</option>
-              <option value="medium">Medium</option>
-              <option value="hard">Hard</option>
-              <option value="unknown">Unknown</option>
+              <option *ngFor="let v of uniqueComplexities" [value]="v">{{ v | titlecase }}</option>
             </select>
           </th>
           <th></th>
-          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.businessStatus" type="search" placeholder="Filter…" aria-label="Filter business status" /></th>
-          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.assignedUser" type="search" placeholder="Filter…" aria-label="Filter assigned user" /></th>
+          <th>
+            <select class="col-filter-input" [formControl]="columnFiltersForm.controls.businessStatus" aria-label="Filter business status">
+              <option value="">All</option>
+              <option *ngFor="let v of uniqueBusinessStatuses" [value]="v">{{ v }}</option>
+            </select>
+          </th>
+          <th>
+            <select class="col-filter-input" [formControl]="columnFiltersForm.controls.assignedUser" aria-label="Filter assigned user">
+              <option value="">All</option>
+              <option *ngFor="let v of uniqueAssignedUsers" [value]="v">{{ v }}</option>
+            </select>
+          </th>
           <th>
             <button *ngIf="hasColumnFilters" class="btn btn-secondary btn-row col-filter-clear" type="button" (click)="clearColumnFilters()">Clear all</button>
           </th>
@@ -254,7 +254,6 @@
                 </a>
               </div>
             </td>
-            <td>{{ row.schemaName }}</td>
             <td>{{ row.turnCount }}</td>
             <td>{{ row.complexity }}</td>
             <td>
@@ -287,7 +286,7 @@
             </td>
           </tr>
           <tr *ngIf="isMetadataOpen(row.taskId)" class="metadata-row">
-            <td colspan="9">
+            <td colspan="8">
               <div class="metadata-card">
                 <p class="metadata-card__title">Metadata preview</p>
                 <pre>{{ row.metadataPreview }}</pre>
