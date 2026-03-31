@@ -27,6 +27,7 @@ import {
   inferComplexity,
   inferTurnCount,
   listTaskOutputFiles,
+  listTaskOutputTasks,
   normalizeConversation,
   readRuntimeConfig,
   readTaskOutputFile,
@@ -574,6 +575,13 @@ test('resolveTaskSchemaInfo follows spider lite routing rules', () => {
     schemaName: 'GNOMAD',
     profile: 'spider_2_lite',
   });
+
+  assert.deepEqual(resolveTaskSchemaInfo({ dataset: 'Spider 2.0-Lite', database: 'Db-IMDB' }), {
+    dataset: 'Spider 2.0-Lite',
+    database: 'Db-IMDB',
+    schemaName: 'DB_IMDB',
+    profile: 'spider_2_lite',
+  });
 });
 
 test('resolveTaskSchemaInfo follows spider snow routing rules', () => {
@@ -590,6 +598,13 @@ test('resolveTaskSchemaInfo follows bigquery routing rules', () => {
     dataset: 'CALIFORNIA_SCHOOLS',
     database: 'bigquery-public-data',
     schemaName: 'CALIFORNIA_SCHOOLS',
+    profile: 'bigquery_public_data',
+  });
+
+  assert.deepEqual(resolveTaskSchemaInfo({ dataset: 'Db-IMDB', database: 'bigquery-public-data' }), {
+    dataset: 'Db-IMDB',
+    database: 'bigquery-public-data',
+    schemaName: 'DB_IMDB',
     profile: 'bigquery_public_data',
   });
 });
@@ -717,6 +732,47 @@ test('listTaskOutputFiles returns sorted files from the configured task folder i
     );
     assert.equal(report.files[0].extension, 'log');
     assert.equal(report.files[1].extension, 'txt');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('listTaskOutputTasks returns local task rows from task-output folders', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-output-'));
+  const newerTaskDir = join(root, '15835');
+  const olderTaskDir = join(root, '9418');
+
+  try {
+    await mkdir(newerTaskDir);
+    await mkdir(olderTaskDir);
+    await writeFile(join(root, 'README.txt'), 'ignore me');
+    await writeFile(
+      join(newerTaskDir, '15835_1metadata.json'),
+      JSON.stringify({
+        promptId: 'prompt-15835',
+        turnCount: 2,
+        complexity: 'hard',
+        colabLink: 'prompt/abc-123',
+      }),
+      'utf8',
+    );
+
+    const rows = await listTaskOutputTasks({ taskOutputDir: root });
+
+    assert.deepEqual(rows.map((row) => row.taskId), ['15835', '9418']);
+    assert.equal(rows[0].source, 'task-output');
+    assert.equal(rows[0].businessStatus, 'Available Locally');
+    assert.equal(rows[0].turnCount, '2');
+    assert.equal(rows[0].complexity, 'Hard');
+    assert.equal(rows[0].promptId, 'prompt-15835');
+    assert.equal(
+      rows[0].collabLink,
+      'https://rlhf-v3.turing.com/prompt/abc-123?origin=https%3A%2F%2Flabeling-o.turing.com&redirect_url=https%3A%2F%2Flabeling-o.turing.com%2Fconversations%2F15835%2Fview',
+    );
+    assert.equal(rows[1].metadataPreview, 'No metadata');
+
+    const filteredRows = await listTaskOutputTasks({ taskOutputDir: root }, { taskId: '9418' });
+    assert.deepEqual(filteredRows.map((row) => row.taskId), ['9418']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

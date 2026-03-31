@@ -20,6 +20,20 @@ const CREATE_OBJ_RE = /\bCREATE\s+(?:OR\s+REPLACE\s+)?(PACKAGE(?:\s+BODY)?|TYPE(
 const LEGACY_PROMPT_OBJECT_RE = /^\s*Procedure\s+name\s*\/\s*Package\s+name\s*\/\s*function\s+name\s*:\s*(.+?)\s*$/gim;
 const TMP_PREFIX = 'TMP_VALIDATE_';
 
+function formatOracleIdentifier(value) {
+  const identifier = String(value ?? '').trim();
+
+  if (!identifier) {
+    throw new Error('Schema name is required.');
+  }
+
+  if (/^[A-Za-z][A-Za-z0-9_$#]*$/u.test(identifier)) {
+    return identifier.toUpperCase();
+  }
+
+  return `"${identifier.replaceAll('"', '""')}"`;
+}
+
 function normalizeObjectName(name) {
   return String(name ?? '').split('.').pop()?.replaceAll('"', '').toUpperCase() ?? '';
 }
@@ -274,7 +288,7 @@ export async function runNamingStandardValidator(taskId, taskDir, metadata, depe
   try {
     connection = await connect(metadata);
     executor = createExecutor(connection);
-    await executor.execute(`ALTER SESSION SET CURRENT_SCHEMA = ${routing.schemaName}`);
+    await executor.execute(`ALTER SESSION SET CURRENT_SCHEMA = ${formatOracleIdentifier(routing.schemaName)}`);
     await executor.execute(`ALTER SESSION SET PLSCOPE_SETTINGS='IDENTIFIERS:ALL'`);
 
     for (let turnNumber = 1; turnNumber <= numTurns; turnNumber += 1) {

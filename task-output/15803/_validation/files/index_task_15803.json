@@ -1,0 +1,35 @@
+{
+  "validator": "FileValidationIndex",
+  "generatedAt": "2026-03-31T06:39:08.878Z",
+  "taskId": "15803",
+  "files": [
+    {
+      "sourceFile": "15803_1metadata.json",
+      "turnId": null,
+      "reportFile": "_validation/files/15803-1metadata__eb851cb8.json",
+      "logFile": "_validation/files/15803-1metadata__eb851cb8.log",
+      "summary": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "tasksTotal": 1,
+        "tasksPassed": 0,
+        "tasksFailed": 1
+      },
+      "validators": [
+        {
+          "validator": "PromptStructureValidator",
+          "summary": {
+            "total": 1,
+            "passed": 0,
+            "failed": 1,
+            "tasksTotal": 1,
+            "tasksPassed": 0,
+            "tasksFailed": 1
+          },
+          "success": false
+        }
+      ]
+    }
+  ]
+}

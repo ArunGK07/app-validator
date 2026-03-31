@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { analyzeColumns, analyzeConstructs, analyzeReasoningTypes, analyzeTables, evaluatePlsqlConstructs, evaluateReasoningTypes } from './analyzers.mjs';
+import { analyzeColumns, analyzeConstructs, analyzeConstructsHighSignal, analyzeReasoningTypes, analyzeTables, evaluatePlsqlConstructs, evaluateReasoningTypes } from './analyzers.mjs';
 import { PLSQL_CONSTRUCT_CATALOG, PLSQL_REASONING_TYPE_CATALOG } from './reference-data.mjs';
 
 test('evaluatePlsqlConstructs considers every catalog item', () => {
@@ -788,6 +788,46 @@ test('analysis normalization does not treat double hyphens inside string literal
   for (const label of ['Exception Handling', 'Control Flow', 'Iterative']) {
     assert.ok(reasoningTypes.has(label), `expected ${label} to remain visible after normalization`);
   }
+});
+
+test('high-signal analyzers detect noneditionable procedures, parameterized cursors, short function calls, and exception declarations', () => {
+  const sql = [
+    'CREATE OR REPLACE NONEDITIONABLE PROCEDURE sp_top10_collisions_by_year (',
+    '  p_year IN NUMBER',
+    ') IS',
+    '  exp_bad_year EXCEPTION;',
+    '  CURSOR c_top10 (p_yr NUMBER) IS',
+    '    WITH temp_cases AS (',
+    '      SELECT case_id',
+    '      FROM california_traffic_collision.case_ids',
+    '      WHERE db_year = p_yr',
+    '    )',
+    "    SELECT NVL(c.primary_collision_factor, 'N/A')",
+    '      FROM california_traffic_collision.collisions c',
+    '      JOIN temp_cases tc ON tc.case_id = c.case_id;',
+    'BEGIN',
+    '  OPEN c_top10(p_year);',
+    '  FETCH c_top10 INTO p_year;',
+    '  CLOSE c_top10;',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const constructs = new Set(analyzeConstructsHighSignal(sql));
+  const reasoningTypes = new Set(analyzeReasoningTypes(sql));
+
+  for (const label of [
+    'CREATE OR REPLACE PROCEDURE',
+    'CURSOR ... IS ...',
+    'WITH',
+    'NVL',
+    'OPEN',
+    'USER-DEFINED EXCEPTION',
+  ]) {
+    assert.ok(constructs.has(label), `expected ${label} in high-signal construct output`);
+  }
+
+  assert.ok(reasoningTypes.has('Structural & Scope'));
 });
 
 test('trigger analyzers include UPDATE OF target tables, detect :OLD. ... usage, and avoid DML false positives from trigger headers', () => {

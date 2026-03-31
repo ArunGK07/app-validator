@@ -4,9 +4,17 @@
       <p class="section-tag">Turing Workspace</p>
       <h2>App Validator</h2>
     </div>
+    <label class="toggle-switch">
+      <input type="checkbox" [formControl]="filtersForm.controls.taskOutputOnly" />
+      <span class="toggle-switch__track" aria-hidden="true"></span>
+      <span class="toggle-switch__text">
+        <strong>Task-output view</strong>
+        <small>Show every local task folder</small>
+      </span>
+    </label>
   </div>
 
-  <div class="filters-bar">
+  <div class="filters-bar" *ngIf="!showTaskOutputOnly">
     <form class="filters" [formGroup]="filtersForm">
       <label>
         <span>Batch</span>
@@ -52,14 +60,22 @@
   <div class="panel-table__header">
     <div class="panel-table__summary">
       <p class="section-tag">Task Results</p>
-      <h3>{{ rows.length }} rows</h3>
+      <h3>
+        <ng-container *ngIf="hasColumnFilters">{{ displayRows.length }} of </ng-container>{{ rows.length }} {{ showTaskOutputOnly ? 'tasks' : 'rows' }}
+      </h3>
       <div *ngIf="message || error" class="filters-feedback">
         <div *ngIf="message" class="notice">{{ message }}</div>
         <div *ngIf="error" class="notice notice--error">{{ error }}</div>
       </div>
     </div>
     <div class="panel-table__actions">
-      <span class="table-hint">RLHF prompt links are captured when available for the next GraphQL stage.</span>
+      <span class="table-hint">
+        {{
+          showTaskOutputOnly
+            ? 'Local rows come from task-output folders. Open report and validation actions remain available.'
+            : 'RLHF prompt links are captured when available for the next GraphQL stage.'
+        }}
+      </span>
       <button
         class="btn btn-secondary"
         type="button"
@@ -183,6 +199,27 @@
           </th>
           <th>Actions</th>
         </tr>
+        <tr class="filter-row">
+          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.batch" type="search" placeholder="Filter…" aria-label="Filter batch" /></th>
+          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.taskId" type="search" placeholder="Filter…" aria-label="Filter task ID" /></th>
+          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.schemaName" type="search" placeholder="Filter…" aria-label="Filter schema name" /></th>
+          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.turnCount" type="search" placeholder="Filter…" aria-label="Filter turn count" /></th>
+          <th>
+            <select class="col-filter-input" [formControl]="columnFiltersForm.controls.complexity" aria-label="Filter complexity">
+              <option value="">All</option>
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </th>
+          <th></th>
+          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.businessStatus" type="search" placeholder="Filter…" aria-label="Filter business status" /></th>
+          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.assignedUser" type="search" placeholder="Filter…" aria-label="Filter assigned user" /></th>
+          <th>
+            <button *ngIf="hasColumnFilters" class="btn btn-secondary btn-row col-filter-clear" type="button" (click)="clearColumnFilters()">Clear all</button>
+          </th>
+        </tr>
       </thead>
       <tbody>
         <ng-container *ngFor="let row of displayRows; trackBy: trackByTaskId">
@@ -266,7 +303,13 @@
     <div class="empty-state">
       <p class="section-tag">No results</p>
       <h3>No tasks to show</h3>
-      <p>Adjust the filters and try again once the backend is available.</p>
+      <p>
+        {{
+          showTaskOutputOnly
+            ? 'No task folders were found in task-output.'
+            : 'Adjust the filters and try again once the backend is available.'
+        }}
+      </p>
     </div>
   </ng-template>
 </section>

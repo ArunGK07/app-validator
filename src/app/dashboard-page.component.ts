@@ -44,8 +44,18 @@ export class DashboardPageComponent implements OnInit {
     userId: '',
     status: 'all',
     batchId: DashboardPageComponent.DEFAULT_BATCH_ID,
+    taskOutputOnly: false,
   });
   readonly taskLookupControl = this.fb.nonNullable.control('');
+  readonly columnFiltersForm = this.fb.nonNullable.group({
+    batch: '',
+    taskId: '',
+    schemaName: '',
+    turnCount: '',
+    complexity: '',
+    businessStatus: '',
+    assignedUser: '',
+  });
 
   batchOptions: BatchOption[] = [];
   teamMembers: TeamMember[] = [];
@@ -77,6 +87,10 @@ export class DashboardPageComponent implements OnInit {
       this.fetchData();
     });
 
+    this.columnFiltersForm.valueChanges.pipe(debounceTime(150), takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      this.updateDisplayRows();
+    });
+
     this.loadHealth();
     this.loadBatches();
     this.loadTeamMembers();
@@ -90,22 +104,29 @@ export class DashboardPageComponent implements OnInit {
     this.openMetadataTaskId = null;
 
     const rawFilters = this.filtersForm.getRawValue();
+    const taskOutputOnly = rawFilters.taskOutputOnly;
     const filters = {
       taskIdQuery: '',
-      ...rawFilters,
+      status: rawFilters.status,
+      batchId: rawFilters.batchId,
       userId: this.resolveUserFilter(rawFilters.userId),
     } satisfies TaskFilters;
 
-    this.api
-      .getConversations(filters)
+    const request$ = taskOutputOnly ? this.api.getTaskOutputTasks() : this.api.getConversations(filters);
+
+    request$
       .pipe(finalize(() => (this.loading = false)))
       .subscribe({
         next: (rows) => {
           this.rows = rows;
           this.updateDisplayRows();
-          this.message = this.rows.length
-            ? `Loaded ${this.rows.length} conversation row${this.rows.length === 1 ? '' : 's'}.`
-            : 'No rows matched the current filters.';
+          this.message = taskOutputOnly
+            ? this.rows.length
+              ? `Loaded ${this.rows.length} task-output folder${this.rows.length === 1 ? '' : 's'}.`
+              : 'No task folders were found in task-output.'
+            : this.rows.length
+              ? `Loaded ${this.rows.length} conversation row${this.rows.length === 1 ? '' : 's'}.`
+              : 'No rows matched the current filters.';
         },
         error: (error: unknown) => {
           this.error = this.asErrorMessage(error);
@@ -311,6 +332,10 @@ export class DashboardPageComponent implements OnInit {
     return row.taskId;
   }
 
+  get showTaskOutputOnly(): boolean {
+    return this.filtersForm.controls.taskOutputOnly.getRawValue();
+  }
+
   getCollabHref(row: ConversationRow): string | null {
     if (row.collabLink?.trim()) {
       return row.collabLink.trim();
@@ -387,8 +412,8 @@ export class DashboardPageComponent implements OnInit {
         this.teamMembers = teamMembers;
         this.fetchData();
       },
-      error: (error: unknown) => {
-        this.error = this.asErrorMessage(error);
+      error: () => {
+        // Secondary loader — empty list is acceptable; avoid overwriting the main error
       },
     });
   }
@@ -398,14 +423,47 @@ export class DashboardPageComponent implements OnInit {
       next: (batches) => {
         this.batchOptions = batches;
       },
-      error: (error: unknown) => {
-        this.error = this.asErrorMessage(error);
+      error: () => {
+        // Secondary loader — empty list is acceptable; avoid overwriting the main error
       },
     });
   }
 
+  get hasColumnFilters(): boolean {
+    return Object.values(this.columnFiltersForm.getRawValue()).some((v) => v.trim());
+  }
+
+  clearColumnFilters(): void {
+    this.columnFiltersForm.reset();
+  }
+
+  private filterRows(rows: ConversationRow[]): ConversationRow[] {
+    const f = this.columnFiltersForm.getRawValue();
+    const batch = f.batch.trim().toLowerCase();
+    const taskId = f.taskId.trim().toLowerCase();
+    const schemaName = f.schemaName.trim().toLowerCase();
+    const turnCount = f.turnCount.trim();
+    const complexity = f.complexity.trim().toLowerCase();
+    const businessStatus = f.businessStatus.trim().toLowerCase();
+    const assignedUser = f.assignedUser.trim().toLowerCase();
+
+    if (!batch && !taskId && !schemaName && !turnCount && !complexity && !businessStatus && !assignedUser) {
+      return rows;
+    }
+
+    return rows.filter((row) =>
+      (!batch || row.batch.toLowerCase().includes(batch)) &&
+      (!taskId || row.taskId.toLowerCase().includes(taskId)) &&
+      (!schemaName || row.schemaName.toLowerCase().includes(schemaName)) &&
+      (!turnCount || row.turnCount === turnCount) &&
+      (!complexity || row.complexity.toLowerCase() === complexity) &&
+      (!businessStatus || row.businessStatus.toLowerCase().includes(businessStatus)) &&
+      (!assignedUser || row.assignedUser.toLowerCase().includes(assignedUser)),
+    );
+  }
+
   private updateDisplayRows(): void {
-    this.displayRows = this.sortRows(this.rows, this.sortState);
+    this.displayRows = this.sortRows(this.filterRows(this.rows), this.sortState);
   }
 
   private buildTaskFetchPayload(row: ConversationRow): { promptId?: string; collabLink?: string; metadata: unknown } {
@@ -536,7 +594,10 @@ export class DashboardPageComponent implements OnInit {
     }
   }
 
-  private readFiltersFromSession(): { filters: { userId: string; status: string; batchId: string }; taskLookupValue: string } | null {
+  private readFiltersFromSession(): {
+    filters: { userId: string; status: string; batchId: string; taskOutputOnly: boolean };
+    taskLookupValue: string;
+  } | null {
     try {
       const storedValue = sessionStorage.getItem(DashboardPageComponent.FILTERS_SESSION_KEY);
       if (!storedValue) {
@@ -549,11 +610,12 @@ export class DashboardPageComponent implements OnInit {
       }
 
       const stored = parsed as {
-        filters?: Partial<TaskFilters>;
+        filters?: Partial<TaskFilters> & { taskOutputOnly?: boolean };
         taskLookupValue?: string;
         userId?: string;
         status?: string;
         batchId?: string;
+        taskOutputOnly?: boolean;
       };
       const filterSource = stored.filters && typeof stored.filters === 'object' ? stored.filters : stored;
 
@@ -565,6 +627,7 @@ export class DashboardPageComponent implements OnInit {
             typeof filterSource.batchId === 'string' && filterSource.batchId
               ? filterSource.batchId
               : DashboardPageComponent.DEFAULT_BATCH_ID,
+          taskOutputOnly: Boolean(filterSource.taskOutputOnly),
         },
         taskLookupValue: typeof stored.taskLookupValue === 'string' ? stored.taskLookupValue : '',
       };

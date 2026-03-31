@@ -7,7 +7,7 @@ import {
   metadataBool,
   parseReasoningTypes,
 } from './common.mjs';
-import { analyzeConstructs, analyzeReasoningTypes } from '../generation/analyzers.mjs';
+import { analyzeConstructsHighSignal, analyzeReasoningTypes } from '../generation/analyzers.mjs';
 
 const SQLERRM_RE = /\bSQLERRM\b/gi;
 const NON_DETERMINISTIC_TIME_SOURCE_RE = /\b(?:SYSDATE|SYSTIMESTAMP|CURRENT_DATE|CURRENT_TIMESTAMP|LOCALTIMESTAMP)\b/gi;
@@ -291,14 +291,31 @@ function parseGeneratedListArtifact(text) {
     .filter(Boolean);
 }
 
+function normalizeArtifactEntry(item, entry) {
+  const trimmed = String(entry ?? '').trim();
+  if (item !== 'PL/SQL Constructs Artifact Semantics') {
+    return trimmed;
+  }
+
+  const upper = trimmed.toUpperCase();
+  if (upper === 'CURSOR') {
+    return 'CURSOR ... IS ...';
+  }
+  if (upper === 'EXCEPTION (DECLARATION)' || upper === 'EXCEPTION DECLARATION') {
+    return 'USER-DEFINED EXCEPTION';
+  }
+
+  return trimmed;
+}
+
 function formatArtifactList(values) {
   return values.length ? values.join(', ') : '[none]';
 }
 
 function compareArtifactLists(taskId, turnNumber, item, sourceFile, actual, expected) {
   const validatorName = VALIDATOR_NAMES.plsqlProgram;
-  const normalizedActual = actual.map((entry) => String(entry).trim());
-  const normalizedExpected = expected.map((entry) => String(entry).trim());
+  const normalizedActual = actual.map((entry) => normalizeArtifactEntry(item, entry));
+  const normalizedExpected = expected.map((entry) => normalizeArtifactEntry(item, entry));
   const actualSet = new Set(normalizedActual.map((entry) => entry.toUpperCase()));
   const expectedSet = new Set(normalizedExpected.map((entry) => entry.toUpperCase()));
 
@@ -359,7 +376,7 @@ async function validateGeneratedAnalyzerArtifacts(taskId, taskDir, turnNumber, c
         'PL/SQL Constructs Artifact Semantics',
         constructsArtifact.fileName,
         parseGeneratedListArtifact(constructsArtifact.text),
-        analyzeConstructs(codeText),
+        analyzeConstructsHighSignal(codeText),
       ),
     );
   }

@@ -25,6 +25,7 @@ export interface ConversationRow {
   assignedUser: string;
   promptId?: string;
   collabLink?: string;
+  source?: 'conversation' | 'task-output';
 }
 
 export interface BatchOption {

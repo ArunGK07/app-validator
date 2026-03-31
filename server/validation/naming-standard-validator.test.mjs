@@ -166,4 +166,44 @@ test('runNamingStandardValidator allows prompt-required top-level object names w
   }
 });
 
+test('runNamingStandardValidator normalizes Spider schema names for CURRENT_SCHEMA session setup', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-naming-validator-schema-'));
+  const taskDir = join(root, '15803');
+  const metadata = {
+    id: 15803,
+    num_turns: 1,
+    dataset: 'Spider 2.0-Lite',
+    database: 'Db-IMDB',
+  };
+  const executedSql = [];
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '15803_turn1_4referenceAnswer.sql'),
+      ['CREATE OR REPLACE PROCEDURE sp_movie_check IS', 'BEGIN', '  NULL;', 'END;', '/'].join('\n'),
+      'utf8',
+    );
+
+    const results = await runNamingStandardValidator('15803', taskDir, metadata, {
+      connect: async () => ({
+        async execute(sql) {
+          executedSql.push(sql);
+          if (/FROM user_errors/i.test(sql) || /FROM user_identifiers/i.test(sql)) {
+            return { rows: [] };
+          }
+          return { rows: [] };
+        },
+        async close() {},
+      }),
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].status, 'PASS');
+    assert.equal(executedSql[0], 'ALTER SESSION SET CURRENT_SCHEMA = DB_IMDB');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 

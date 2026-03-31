@@ -1,0 +1,1544 @@
+{
+  "validator": "MasterValidator",
+  "generatedAt": "2026-03-31T06:39:08.878Z",
+  "taskId": "15803",
+  "summary": {
+    "validatorsRun": 4,
+    "validatorsPassed": 3,
+    "validatorsFailed": 1,
+    "itemsTotal": 1,
+    "itemsPassed": 0,
+    "itemsFailed": 1,
+    "taskFailHits": 1,
+    "tasksTotal": 1,
+    "tasksPassed": 0,
+    "tasksFailed": 1
+  },
+  "validators": [
+    {
+      "validator": "PromptStructureValidator",
+      "summary": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "tasksTotal": 1,
+        "tasksPassed": 0,
+        "tasksFailed": 1
+      },
+      "success": false,
+      "reportFile": "_validation/promptstructure_task_15803.json"
+    },
+    {
+      "validator": "PLSQLProgramValidator",
+      "summary": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "tasksTotal": 0,
+        "tasksPassed": 0,
+        "tasksFailed": 0
+      },
+      "success": true,
+      "reportFile": "_validation/plsqlcombined_task_15803.json"
+    },
+    {
+      "validator": "NamingStandardValidator",
+      "summary": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "tasksTotal": 0,
+        "tasksPassed": 0,
+        "tasksFailed": 0
+      },
+      "success": true,
+      "reportFile": "_validation/namingstandard_task_15803.json"
+    },
+    {
+      "validator": "ArtifactAlignmentValidator",
+      "summary": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "tasksTotal": 0,
+        "tasksPassed": 0,
+        "tasksFailed": 0
+      },
+      "success": true,
+      "reportFile": "_validation/artifactalignment_task_15803.json"
+    }
+  ],
+  "checklistCatalog": [
+    {
+      "checkId": "prompt.metadata",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Metadata",
+      "ruleIds": [
+        "invalid_num_turns",
+        "invalid_shape",
+        "invalid_or_missing_metadata"
+      ],
+      "description": "Metadata must exist, be valid JSON, and define a positive num_turns value."
+    },
+    {
+      "checkId": "prompt.input-artifact",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Prompt Input Artifact",
+      "ruleIds": [
+        "missing_artifact"
+      ],
+      "description": "Each turn must have a prompt input artifact."
+    },
+    {
+      "checkId": "prompt.preamble",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Prompt Preamble",
+      "ruleIds": [
+        "preamble_allowed",
+        "unexpected_preamble"
+      ],
+      "description": "The prompt may contain at most three preamble lines before Requirements."
+    },
+    {
+      "checkId": "prompt.structure",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Prompt Structure",
+      "ruleIds": [
+        "no_retired_sections",
+        "retired_section_header"
+      ],
+      "description": "The prompt must use the canonical section structure with no retired headers."
+    },
+    {
+      "checkId": "prompt.requirements-header",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Requirements",
+      "ruleIds": [
+        "missing_section",
+        "invalid_header_content",
+        "header_only_and_first"
+      ],
+      "description": "Requirements must be present as the first standalone section header."
+    },
+    {
+      "checkId": "prompt.section-order",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Section Order",
+      "ruleIds": [
+        "missing_sections_for_order_check",
+        "invalid_section_order",
+        "canonical_order"
+      ],
+      "description": "Sections must appear in canonical order."
+    },
+    {
+      "checkId": "prompt.parameters-section",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Parameters",
+      "ruleIds": [
+        "missing_section",
+        "missing_content",
+        "section_present"
+      ],
+      "description": "Parameters section must exist and contain content."
+    },
+    {
+      "checkId": "prompt.parameters-format",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Parameters Format",
+      "ruleIds": [
+        "missing_parameter_contract",
+        "invalid_parameter_line",
+        "missing_parameter_group_headers",
+        "parameter_groups_valid"
+      ],
+      "description": "Parameters must follow the required line format and grouping rules."
+    },
+    {
+      "checkId": "prompt.output-section",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Output",
+      "ruleIds": [
+        "missing_section",
+        "missing_content",
+        "section_present"
+      ],
+      "description": "Output section must exist and contain content."
+    },
+    {
+      "checkId": "prompt.output-format",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Output Format",
+      "ruleIds": [
+        "missing_output_contract",
+        "missing_output_groups",
+        "output_groups_valid"
+      ],
+      "description": "Output must follow the expected grouping rules."
+    },
+    {
+      "checkId": "prompt.sorting-order-section",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Sorting Order",
+      "ruleIds": [
+        "optional_absent",
+        "missing_section",
+        "missing_content",
+        "section_present"
+      ],
+      "description": "Sorting Order is optional, but if present it must have valid content."
+    },
+    {
+      "checkId": "prompt.exception-section",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Exception Handling",
+      "ruleIds": [
+        "missing_section",
+        "missing_content",
+        "section_present"
+      ],
+      "description": "Exception Handling section must exist and contain content."
+    },
+    {
+      "checkId": "prompt.plain-text",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Plain Text",
+      "ruleIds": [
+        "forbidden_markup",
+        "plain_text_only"
+      ],
+      "description": "The prompt must be plain text with no HTML or markdown formatting."
+    },
+    {
+      "checkId": "prompt.exception-format",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Exception Handling Format",
+      "ruleIds": [
+        "missing_exception_contract",
+        "invalid_exception_line",
+        "missing_other_exception_fallback",
+        "exception_lines_valid"
+      ],
+      "description": "Exception Handling lines must follow the expected scenario-message format."
+    },
+    {
+      "checkId": "prompt.requirements-entries-shape",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Requirements Entries",
+      "ruleIds": [
+        "invalid_requirement_entries",
+        "entry_shape_valid"
+      ],
+      "description": "Requirements entries must use header-value pairs in the canonical shape."
+    },
+    {
+      "checkId": "prompt.requirements-entries-coverage",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Requirements Entries",
+      "ruleIds": [
+        "missing_named_units",
+        "all_named_units_declared",
+        "required_anonymous_block_present",
+        "missing_required_anonymous_block"
+      ],
+      "description": "Requirements must declare all implemented program units and required anonymous blocks."
+    },
+    {
+      "checkId": "prompt.requirement-naming",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "itemPrefix": "Requirement Naming:",
+      "dynamic": true,
+      "ruleIds": [
+        "naming_convention_valid",
+        "invalid_naming_convention"
+      ],
+      "description": "Named requirements must follow the required naming conventions."
+    },
+    {
+      "checkId": "prompt.parameter-contract",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "itemPrefix": "Parameter Contract:",
+      "dynamic": true,
+      "ruleIds": [
+        "parameter_contract_satisfied",
+        "missing_parameter_in_code",
+        "parameter_mode_mismatch",
+        "parameter_datatype_mismatch"
+      ],
+      "description": "Prompt parameter names, modes, and datatypes must stay aligned with the implemented signature."
+    },
+    {
+      "checkId": "prompt.sorting-order-contract",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Sorting Order Contract",
+      "ruleIds": [
+        "sorting_clause_present",
+        "missing_sorting_clause",
+        "no_sorting_marker_present",
+        "unexpected_sorting_content_without_order_by"
+      ],
+      "description": "Sorting Order must match the implemented SQL ORDER BY behavior, including query/scenario grouping when one program contains multiple ordered queries."
+    },
+    {
+      "checkId": "prompt.custom-exception-contract",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "itemPrefix": "Custom Exception ",
+      "dynamic": true,
+      "ruleIds": [
+        "missing_exception_reference",
+        "missing_exception_declaration",
+        "missing_exception_raise",
+        "missing_exception_handler",
+        "contract_satisfied"
+      ],
+      "description": "Prompt-required custom exceptions must be declared, raised, and handled in PL/SQL."
+    },
+    {
+      "checkId": "prompt.no-data-found-contract",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "NO_DATA_FOUND Contract",
+      "ruleIds": [
+        "contract_satisfied",
+        "contract_mismatch"
+      ],
+      "description": "Prompt-required NO_DATA_FOUND handling must exist and be plausibly triggered."
+    },
+    {
+      "checkId": "prompt.too-many-rows-contract",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "TOO_MANY_ROWS Contract",
+      "ruleIds": [
+        "contract_satisfied",
+        "contract_mismatch"
+      ],
+      "description": "Prompt-required TOO_MANY_ROWS handling must exist and be plausibly triggered."
+    },
+    {
+      "checkId": "prompt.when-others-contract",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "WHEN OTHERS Contract",
+      "ruleIds": [
+        "contract_satisfied",
+        "missing_handler"
+      ],
+      "description": "Prompt-required WHEN OTHERS handling must exist."
+    },
+    {
+      "checkId": "alignment.prompt-artifact",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "item": "Prompt Input Artifact",
+      "ruleIds": [
+        "missing_prompt_artifact",
+        "prompt_artifact_present"
+      ],
+      "description": "Prompt input must exist before artifact alignment can be validated."
+    },
+    {
+      "checkId": "alignment.reference-artifact",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "item": "Reference Answer Artifact",
+      "ruleIds": [
+        "missing_reference_artifact",
+        "reference_artifact_present"
+      ],
+      "description": "Reference answer SQL must exist before artifact alignment can be validated."
+    },
+    {
+      "checkId": "alignment.testcase-artifact",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "item": "Test Cases Artifact",
+      "ruleIds": [
+        "missing_testcase_artifact",
+        "testcase_artifact_present"
+      ],
+      "description": "Test cases must exist before artifact alignment can be validated."
+    },
+    {
+      "checkId": "alignment.required-program",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "itemPrefix": "Required Program Implementation:",
+      "dynamic": true,
+      "ruleIds": [
+        "program_implemented",
+        "missing_program_implementation"
+      ],
+      "description": "Every named prompt program/object must be implemented in the reference answer."
+    },
+    {
+      "checkId": "alignment.testcase-program",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "itemPrefix": "Testcase Program Coverage:",
+      "dynamic": true,
+      "ruleIds": [
+        "testcase_program_covered",
+        "missing_testcase_program_coverage"
+      ],
+      "description": "Named prompt programs must be referenced from testcase execution instructions."
+    },
+    {
+      "checkId": "alignment.output-code",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "itemPrefix": "Output Literal Code Coverage:",
+      "dynamic": true,
+      "ruleIds": [
+        "output_literal_in_code",
+        "missing_output_literal_in_code"
+      ],
+      "description": "Explicit literal outputs from the prompt must be evidenced in the program."
+    },
+    {
+      "checkId": "alignment.output-testcase",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "itemPrefix": "Output Literal Test Coverage:",
+      "dynamic": true,
+      "ruleIds": [
+        "output_literal_in_testcase",
+        "missing_output_literal_in_testcase"
+      ],
+      "description": "Explicit literal outputs from the prompt must appear in testcase execution results."
+    },
+    {
+      "checkId": "alignment.exception-code",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "itemPrefix": "Exception Message Code Coverage:",
+      "dynamic": true,
+      "ruleIds": [
+        "exception_message_in_code",
+        "missing_exception_message_in_code"
+      ],
+      "description": "Explicit prompt exception messages must be evidenced in program handlers."
+    },
+    {
+      "checkId": "alignment.exception-testcase",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "itemPrefix": "Exception Message Test Coverage:",
+      "dynamic": true,
+      "ruleIds": [
+        "exception_message_in_testcase",
+        "missing_exception_message_in_testcase"
+      ],
+      "description": "Explicit prompt exception messages must appear in testcase execution results."
+    },
+    {
+      "checkId": "plsql.metadata",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Metadata",
+      "ruleIds": [
+        "invalid_num_turns"
+      ],
+      "description": "Metadata must define a positive num_turns value."
+    },
+    {
+      "checkId": "plsql.reference-artifact",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Reference Answer Artifact",
+      "ruleIds": [
+        "artifact_present",
+        "missing_artifact"
+      ],
+      "description": "Each turn must have a PL/SQL reference answer artifact."
+    },
+    {
+      "checkId": "plsql.columns-artifact",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Columns Artifact",
+      "ruleIds": [
+        "artifact_present",
+        "missing_artifact"
+      ],
+      "description": "Each turn must have a columns artifact."
+    },
+    {
+      "checkId": "plsql.test-cases-artifact",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Test Cases Artifact",
+      "ruleIds": [
+        "artifact_present",
+        "missing_artifact"
+      ],
+      "description": "Each turn must have a test-cases artifact."
+    },
+    {
+      "checkId": "plsql.reasoning-types-artifact",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Reasoning Types Artifact",
+      "ruleIds": [
+        "artifact_present",
+        "missing_artifact"
+      ],
+      "description": "Each turn must have a reasoning-types artifact."
+    },
+    {
+      "checkId": "plsql.plsql-constructs-artifact",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "PL/SQL Constructs Artifact",
+      "ruleIds": [
+        "artifact_present",
+        "missing_artifact"
+      ],
+      "description": "Each turn must have a PL/SQL constructs artifact."
+    },
+    {
+      "checkId": "plsql.exception-handling",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Exception Handling",
+      "ruleIds": [
+        "missing_exception_block",
+        "exception_block_present"
+      ],
+      "description": "Each PL/SQL turn must contain an EXCEPTION block with handlers."
+    },
+    {
+      "checkId": "plsql.sqlerrm",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "SQLERRM Usage",
+      "ruleIds": [
+        "disallowed_sqlerrm",
+        "not_present"
+      ],
+      "description": "SQLERRM must not be used in rubric-unsafe ways."
+    },
+    {
+      "checkId": "plsql.non-deterministic-time",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Non-Deterministic Time Usage",
+      "ruleIds": [
+        "disallowed_nondeterministic_time_source",
+        "not_present"
+      ],
+      "description": "Reference answers must not use volatile date/time sources such as SYSDATE or SYSTIMESTAMP."
+    },
+    {
+      "checkId": "plsql.program-unit-creation",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Program Unit Creation",
+      "ruleIds": [
+        "missing_required_program_unit_creation",
+        "required_program_unit_present_procedure",
+        "required_program_unit_present_function",
+        "required_program_unit_present_package",
+        "required_program_unit_present_package body"
+      ],
+      "description": "Required named program units must be created."
+    },
+    {
+      "checkId": "plsql.anonymous-block",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Anonymous Block",
+      "ruleIds": [
+        "missing_required_anonymous_block",
+        "required_anonymous_block_present"
+      ],
+      "description": "Required anonymous blocks must exist."
+    },
+    {
+      "checkId": "plsql.root-cause-analysis",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Root Cause Analysis",
+      "ruleIds": [
+        "not_required",
+        "missing_evidence",
+        "multi_turn_evidence_present",
+        "missing_rca_annotation",
+        "missing_multi_turn_rca",
+        "single_turn_evidence_present",
+        "missing_single_turn_rca"
+      ],
+      "description": "Root Cause Analysis evidence must satisfy the task metadata requirements."
+    },
+    {
+      "checkId": "plsql.inline-execution",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Inline Execution",
+      "ruleIds": [
+        "not_required",
+        "evidence_present",
+        "missing_inline_execution"
+      ],
+      "description": "Inline execution evidence must satisfy the task metadata requirements."
+    },
+    {
+      "checkId": "plsql.reasoning-type",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "itemPrefix": "Reasoning Type:",
+      "dynamic": true,
+      "ruleIds": [
+        "evidence_present",
+        "missing_reasoning_type_evidence"
+      ],
+      "description": "Required reasoning types must be evidenced in the PL/SQL program."
+    },
+    {
+      "checkId": "plsql.type-usage",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Type Usage",
+      "ruleIds": [
+        "unused_type_created"
+      ],
+      "description": "Created types must be used somewhere in the program."
+    },
+    {
+      "checkId": "plsql.prompt-object-coverage",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Prompt Object Coverage",
+      "ruleIds": [
+        "no_named_requirements",
+        "missing_required_objects",
+        "all_objects_implemented"
+      ],
+      "description": "Named prompt requirements must be implemented in the code."
+    },
+    {
+      "checkId": "complexity.metadata",
+      "category": "complexity-table-count",
+      "validator": "ComplexityTableCountValidator",
+      "item": "Metadata",
+      "ruleIds": [
+        "invalid_num_turns"
+      ],
+      "description": "Metadata must define a positive num_turns value."
+    },
+    {
+      "checkId": "complexity.value",
+      "category": "complexity-table-count",
+      "validator": "ComplexityTableCountValidator",
+      "item": "Complexity",
+      "ruleIds": [
+        "unsupported_complexity"
+      ],
+      "description": "Complexity must be supported by the table-count validator."
+    },
+    {
+      "checkId": "complexity.table-artifact",
+      "category": "complexity-table-count",
+      "validator": "ComplexityTableCountValidator",
+      "item": "Table Artifact",
+      "ruleIds": [
+        "missing_artifact",
+        "artifact_present"
+      ],
+      "description": "Each turn must have a table artifact for complexity checking."
+    },
+    {
+      "checkId": "complexity.table-count",
+      "category": "complexity-table-count",
+      "validator": "ComplexityTableCountValidator",
+      "item": "Complexity Table Count",
+      "ruleIds": [
+        "count_aligned",
+        "count_mismatch"
+      ],
+      "description": "The table count must align with the declared complexity."
+    },
+    {
+      "checkId": "naming.metadata",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "item": "Metadata",
+      "ruleIds": [
+        "invalid_num_turns"
+      ],
+      "description": "Metadata must define a positive num_turns value."
+    },
+    {
+      "checkId": "naming.connection",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "item": "Connection",
+      "ruleIds": [
+        "connection_error"
+      ],
+      "description": "Oracle connection for naming validation must succeed."
+    },
+    {
+      "checkId": "naming.reference-artifact",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "item": "Reference Answer Artifact",
+      "ruleIds": [
+        "missing_artifact"
+      ],
+      "description": "Each turn must have a PL/SQL reference answer artifact."
+    },
+    {
+      "checkId": "naming.standard",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "item": "Naming Standard",
+      "ruleIds": [
+        "compliant"
+      ],
+      "description": "The naming standard validator should report compliant code when no violations exist."
+    },
+    {
+      "checkId": "naming.compilation",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "item": "Compilation",
+      "ruleIds": [
+        "compile_or_execution_error"
+      ],
+      "description": "Compilation and identifier extraction must succeed for naming validation."
+    },
+    {
+      "checkId": "naming.violations",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "dynamic": true,
+      "ruleIds": [
+        "naming_violation"
+      ],
+      "description": "Every naming-standard violation should be listed with PASS or FAIL status."
+    }
+  ],
+  "checklist": [
+    {
+      "checkId": "prompt.metadata",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Metadata",
+      "ruleId": "invalid_or_missing_metadata",
+      "description": "Metadata must exist, be valid JSON, and define a positive num_turns value.",
+      "status": "FAIL",
+      "taskId": "15803",
+      "turnId": null,
+      "expected": "metadata file 15803_1metadata.json must exist and contain valid JSON",
+      "present": "ENOENT: no such file or directory, open 'D:\\Turing\\Projects\\workspace\\app-validator\\task-output\\15803\\15803_1metadata.json'",
+      "update": "fetch task output to regenerate metadata, then rerun validation",
+      "sourceFile": "15803_1metadata.json",
+      "line": null
+    },
+    {
+      "checkId": "prompt.input-artifact",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Prompt Input Artifact",
+      "ruleId": null,
+      "description": "Each turn must have a prompt input artifact.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.preamble",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Prompt Preamble",
+      "ruleId": null,
+      "description": "The prompt may contain at most three preamble lines before Requirements.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.structure",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Prompt Structure",
+      "ruleId": null,
+      "description": "The prompt must use the canonical section structure with no retired headers.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.requirements-header",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Requirements",
+      "ruleId": null,
+      "description": "Requirements must be present as the first standalone section header.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.section-order",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Section Order",
+      "ruleId": null,
+      "description": "Sections must appear in canonical order.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.parameters-section",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Parameters",
+      "ruleId": null,
+      "description": "Parameters section must exist and contain content.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.parameters-format",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Parameters Format",
+      "ruleId": null,
+      "description": "Parameters must follow the required line format and grouping rules.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.output-section",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Output",
+      "ruleId": null,
+      "description": "Output section must exist and contain content.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.output-format",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Output Format",
+      "ruleId": null,
+      "description": "Output must follow the expected grouping rules.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.sorting-order-section",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Sorting Order",
+      "ruleId": null,
+      "description": "Sorting Order is optional, but if present it must have valid content.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.exception-section",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Exception Handling",
+      "ruleId": null,
+      "description": "Exception Handling section must exist and contain content.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.plain-text",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Plain Text",
+      "ruleId": null,
+      "description": "The prompt must be plain text with no HTML or markdown formatting.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.exception-format",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Exception Handling Format",
+      "ruleId": null,
+      "description": "Exception Handling lines must follow the expected scenario-message format.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.requirements-entries-shape",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Requirements Entries",
+      "ruleId": null,
+      "description": "Requirements entries must use header-value pairs in the canonical shape.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.requirements-entries-coverage",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Requirements Entries",
+      "ruleId": null,
+      "description": "Requirements must declare all implemented program units and required anonymous blocks.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.sorting-order-contract",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Sorting Order Contract",
+      "ruleId": null,
+      "description": "Sorting Order must match the implemented SQL ORDER BY behavior, including query/scenario grouping when one program contains multiple ordered queries.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.no-data-found-contract",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "NO_DATA_FOUND Contract",
+      "ruleId": null,
+      "description": "Prompt-required NO_DATA_FOUND handling must exist and be plausibly triggered.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.too-many-rows-contract",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "TOO_MANY_ROWS Contract",
+      "ruleId": null,
+      "description": "Prompt-required TOO_MANY_ROWS handling must exist and be plausibly triggered.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "prompt.when-others-contract",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "WHEN OTHERS Contract",
+      "ruleId": null,
+      "description": "Prompt-required WHEN OTHERS handling must exist.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "alignment.prompt-artifact",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "item": "Prompt Input Artifact",
+      "ruleId": null,
+      "description": "Prompt input must exist before artifact alignment can be validated.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "alignment.reference-artifact",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "item": "Reference Answer Artifact",
+      "ruleId": null,
+      "description": "Reference answer SQL must exist before artifact alignment can be validated.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "alignment.testcase-artifact",
+      "category": "artifact-alignment",
+      "validator": "ArtifactAlignmentValidator",
+      "item": "Test Cases Artifact",
+      "ruleId": null,
+      "description": "Test cases must exist before artifact alignment can be validated.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.metadata",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Metadata",
+      "ruleId": null,
+      "description": "Metadata must define a positive num_turns value.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.reference-artifact",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Reference Answer Artifact",
+      "ruleId": null,
+      "description": "Each turn must have a PL/SQL reference answer artifact.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.columns-artifact",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Columns Artifact",
+      "ruleId": null,
+      "description": "Each turn must have a columns artifact.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.test-cases-artifact",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Test Cases Artifact",
+      "ruleId": null,
+      "description": "Each turn must have a test-cases artifact.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.reasoning-types-artifact",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Reasoning Types Artifact",
+      "ruleId": null,
+      "description": "Each turn must have a reasoning-types artifact.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.plsql-constructs-artifact",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "PL/SQL Constructs Artifact",
+      "ruleId": null,
+      "description": "Each turn must have a PL/SQL constructs artifact.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.exception-handling",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Exception Handling",
+      "ruleId": null,
+      "description": "Each PL/SQL turn must contain an EXCEPTION block with handlers.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.sqlerrm",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "SQLERRM Usage",
+      "ruleId": null,
+      "description": "SQLERRM must not be used in rubric-unsafe ways.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.non-deterministic-time",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Non-Deterministic Time Usage",
+      "ruleId": null,
+      "description": "Reference answers must not use volatile date/time sources such as SYSDATE or SYSTIMESTAMP.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.program-unit-creation",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Program Unit Creation",
+      "ruleId": null,
+      "description": "Required named program units must be created.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.anonymous-block",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Anonymous Block",
+      "ruleId": null,
+      "description": "Required anonymous blocks must exist.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.root-cause-analysis",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Root Cause Analysis",
+      "ruleId": null,
+      "description": "Root Cause Analysis evidence must satisfy the task metadata requirements.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.inline-execution",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Inline Execution",
+      "ruleId": null,
+      "description": "Inline execution evidence must satisfy the task metadata requirements.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.type-usage",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Type Usage",
+      "ruleId": null,
+      "description": "Created types must be used somewhere in the program.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "plsql.prompt-object-coverage",
+      "category": "plsql-program",
+      "validator": "PLSQLProgramValidator",
+      "item": "Prompt Object Coverage",
+      "ruleId": null,
+      "description": "Named prompt requirements must be implemented in the code.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "complexity.metadata",
+      "category": "complexity-table-count",
+      "validator": "ComplexityTableCountValidator",
+      "item": "Metadata",
+      "ruleId": null,
+      "description": "Metadata must define a positive num_turns value.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "complexity.value",
+      "category": "complexity-table-count",
+      "validator": "ComplexityTableCountValidator",
+      "item": "Complexity",
+      "ruleId": null,
+      "description": "Complexity must be supported by the table-count validator.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "complexity.table-artifact",
+      "category": "complexity-table-count",
+      "validator": "ComplexityTableCountValidator",
+      "item": "Table Artifact",
+      "ruleId": null,
+      "description": "Each turn must have a table artifact for complexity checking.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "complexity.table-count",
+      "category": "complexity-table-count",
+      "validator": "ComplexityTableCountValidator",
+      "item": "Complexity Table Count",
+      "ruleId": null,
+      "description": "The table count must align with the declared complexity.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "naming.metadata",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "item": "Metadata",
+      "ruleId": null,
+      "description": "Metadata must define a positive num_turns value.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "naming.connection",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "item": "Connection",
+      "ruleId": null,
+      "description": "Oracle connection for naming validation must succeed.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "naming.reference-artifact",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "item": "Reference Answer Artifact",
+      "ruleId": null,
+      "description": "Each turn must have a PL/SQL reference answer artifact.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "naming.standard",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "item": "Naming Standard",
+      "ruleId": null,
+      "description": "The naming standard validator should report compliant code when no violations exist.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    },
+    {
+      "checkId": "naming.compilation",
+      "category": "naming-standard",
+      "validator": "NamingStandardValidator",
+      "item": "Compilation",
+      "ruleId": null,
+      "description": "Compilation and identifier extraction must succeed for naming validation.",
+      "status": "NOT_RUN",
+      "taskId": null,
+      "turnId": null,
+      "expected": null,
+      "present": null,
+      "update": null,
+      "sourceFile": null,
+      "line": null
+    }
+  ],
+  "results": [
+    {
+      "taskId": "15803",
+      "turnId": null,
+      "validator": "PromptStructureValidator",
+      "item": "Metadata",
+      "ruleId": "invalid_or_missing_metadata",
+      "status": "FAIL",
+      "expected": "metadata file 15803_1metadata.json must exist and contain valid JSON",
+      "present": "ENOENT: no such file or directory, open 'D:\\Turing\\Projects\\workspace\\app-validator\\task-output\\15803\\15803_1metadata.json'",
+      "update": "fetch task output to regenerate metadata, then rerun validation",
+      "sourceFile": "15803_1metadata.json",
+      "line": null,
+      "checkId": "prompt.metadata",
+      "category": "prompt-structure",
+      "description": "Metadata must exist, be valid JSON, and define a positive num_turns value."
+    }
+  ],
+  "fileReports": [
+    {
+      "sourceFile": "15803_1metadata.json",
+      "turnId": null,
+      "reportFile": "_validation/files/15803-1metadata__eb851cb8.json",
+      "logFile": "_validation/files/15803-1metadata__eb851cb8.log",
+      "summary": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "tasksTotal": 1,
+        "tasksPassed": 0,
+        "tasksFailed": 1
+      },
+      "validators": [
+        {
+          "validator": "PromptStructureValidator",
+          "summary": {
+            "total": 1,
+            "passed": 0,
+            "failed": 1,
+            "tasksTotal": 1,
+            "tasksPassed": 0,
+            "tasksFailed": 1
+          },
+          "success": false
+        }
+      ]
+    }
+  ]
+}

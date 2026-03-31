@@ -1,0 +1,65 @@
+{
+  "validator": "FileValidationReport",
+  "generatedAt": "2026-03-31T06:39:08.878Z",
+  "taskId": "15803",
+  "sourceFile": "15803_1metadata.json",
+  "turnId": null,
+  "summary": {
+    "total": 1,
+    "passed": 0,
+    "failed": 1,
+    "tasksTotal": 1,
+    "tasksPassed": 0,
+    "tasksFailed": 1
+  },
+  "validators": [
+    {
+      "validator": "PromptStructureValidator",
+      "summary": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "tasksTotal": 1,
+        "tasksPassed": 0,
+        "tasksFailed": 1
+      },
+      "success": false
+    }
+  ],
+  "checklist": [
+    {
+      "checkId": "prompt.metadata",
+      "category": "prompt-structure",
+      "validator": "PromptStructureValidator",
+      "item": "Metadata",
+      "ruleId": "invalid_or_missing_metadata",
+      "description": "Metadata must exist, be valid JSON, and define a positive num_turns value.",
+      "status": "FAIL",
+      "taskId": "15803",
+      "turnId": null,
+      "expected": "metadata file 15803_1metadata.json must exist and contain valid JSON",
+      "present": "ENOENT: no such file or directory, open 'D:\\Turing\\Projects\\workspace\\app-validator\\task-output\\15803\\15803_1metadata.json'",
+      "update": "fetch task output to regenerate metadata, then rerun validation",
+      "sourceFile": "15803_1metadata.json",
+      "line": null
+    }
+  ],
+  "results": [
+    {
+      "taskId": "15803",
+      "turnId": null,
+      "validator": "PromptStructureValidator",
+      "item": "Metadata",
+      "ruleId": "invalid_or_missing_metadata",
+      "status": "FAIL",
+      "expected": "metadata file 15803_1metadata.json must exist and contain valid JSON",
+      "present": "ENOENT: no such file or directory, open 'D:\\Turing\\Projects\\workspace\\app-validator\\task-output\\15803\\15803_1metadata.json'",
+      "update": "fetch task output to regenerate metadata, then rerun validation",
+      "sourceFile": "15803_1metadata.json",
+      "line": null,
+      "checkId": "prompt.metadata",
+      "category": "prompt-structure",
+      "description": "Metadata must exist, be valid JSON, and define a positive num_turns value."
+    }
+  ]
+}

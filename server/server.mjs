@@ -12,6 +12,7 @@ import {
   fetchTeamMembers,
   getProxyHealth,
   listTaskOutputFiles,
+  listTaskOutputTasks,
   readRuntimeConfig,
   readTaskOutputFile,
   writeTaskOutputFile,
@@ -94,6 +95,17 @@ app.get('/api/conversations/raw', async (request, response) => {
   try {
     const payload = await fetchRawConversations(request.query, readRuntimeConfig());
     response.json(payload);
+  } catch (error) {
+    sendProxyError(response, error);
+  }
+});
+
+app.get('/api/task-output/tasks', async (request, response) => {
+  try {
+    const rows = await listTaskOutputTasks(readRuntimeConfig(), {
+      taskId: asQueryString(request.query.taskId),
+    });
+    response.json(rows);
   } catch (error) {
     sendProxyError(response, error);
   }
@@ -182,15 +194,6 @@ app.post('/api/tasks/:taskId/actions/:action', async (request, response) => {
     const action = asPathString(request.params.action);
     const taskId = asPathString(request.params.taskId);
     const config = readRuntimeConfig();
-
-    if (action === 'publish') {
-      const row = await fetchConversation(taskId, config);
-
-      if (isCompletedConversationStatus(row)) {
-        response.status(400).json({ message: `Task ${taskId} is already in Completed status and cannot be published.` });
-        return;
-      }
-    }
 
     const result = await runTaskWorkflowAction(action, taskId, config);
     response.json(result);

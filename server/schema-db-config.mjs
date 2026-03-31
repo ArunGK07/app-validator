@@ -37,7 +37,7 @@ export function resolveTaskRouting(metadata) {
     return {
       dataset,
       database,
-      schemaName: database,
+      schemaName: normalizeOracleSchemaName(database),
       profile: datasetKey === 'spider20snow' ? 'spider_2_snow' : 'spider_2_lite',
     };
   }
@@ -46,7 +46,7 @@ export function resolveTaskRouting(metadata) {
     return {
       dataset,
       database,
-      schemaName: dataset,
+      schemaName: normalizeOracleSchemaName(dataset),
       profile: 'bigquery_public_data',
     };
   }
@@ -101,6 +101,14 @@ function profileEnvPrefix(profile) {
 
 function normalizeRoutingValue(value) {
   return asString(value).toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function normalizeOracleSchemaName(value) {
+  return asString(value)
+    .trim()
+    .replace(/[^A-Za-z0-9_$#]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
 }
 
 function asString(value) {

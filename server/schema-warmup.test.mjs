@@ -144,7 +144,7 @@ test('warmSchemaCache skips invalid bigquery placeholder candidates', async () =
   assert.equal(result.generatedCount, 1);
   assert.equal(result.failedCount, 0);
 });
-test('warmSchemaCache skips spider candidates with schema names unsupported by the Oracle extractor', async () => {
+test('warmSchemaCache normalizes supported Spider schema names and skips unsupported ones', async () => {
   const generated = [];
 
   const result = await warmSchemaCache(
@@ -187,9 +187,9 @@ test('warmSchemaCache skips spider candidates with schema names unsupported by t
     },
   );
 
-  assert.deepEqual(generated, ['Spider 2.0-Lite::GNOMAD']);
+  assert.deepEqual(generated, ['Spider 2.0-Lite::Db-IMDB', 'Spider 2.0-Lite::sqlite-sakila', 'Spider 2.0-Lite::GNOMAD']);
   assert.equal(result.status, 'completed');
-  assert.equal(result.candidateCount, 1);
-  assert.equal(result.generatedCount, 1);
+  assert.equal(result.candidateCount, 3);
+  assert.equal(result.generatedCount, 3);
   assert.equal(result.failedCount, 0);
 });

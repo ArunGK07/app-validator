@@ -1,0 +1,13 @@
+{
+  "validator": "NamingStandardValidator",
+  "generatedAt": "2026-03-31T06:39:08.876Z",
+  "summary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "tasksTotal": 0,
+    "tasksPassed": 0,
+    "tasksFailed": 0
+  },
+  "results": []
+}

@@ -188,7 +188,8 @@ export class ReportPageComponent implements OnInit {
   loadingFetch = false;
   showFetchConfirm = false;
   showPublishConfirm = false;
-  private pendingWorkflowAction: { action: TaskWorkflowAction; taskId: string } | null = null;
+  publishConfirmRequiresOverride = false;
+  private pendingWorkflowAction: { action: TaskWorkflowAction; taskId: string; forcePublish?: boolean } | null = null;
   editingConversation = false;
   runningAction: TaskWorkflowAction | null = null;
   lastActionResult: TaskWorkflowActionResult | null = null;
@@ -438,11 +439,7 @@ export class ReportPageComponent implements OnInit {
           return;
         }
 
-        if (this.isPublishBlocked(row)) {
-          this.actionMessage = '';
-          this.actionError = `Task ${taskId} is already in Completed status and cannot be published.`;
-          return;
-        }
+        this.publishConfirmRequiresOverride = this.isPublishBlocked(row);
       } catch (error) {
         if (this.taskId === taskId) {
           this.actionMessage = '';
@@ -451,8 +448,9 @@ export class ReportPageComponent implements OnInit {
         return;
       }
       // show custom publish confirmation modal
-      this.pendingWorkflowAction = { action, taskId };
+      this.pendingWorkflowAction = { action, taskId, forcePublish: this.publishConfirmRequiresOverride };
       this.showPublishConfirm = true;
+      this.actionMessage = '';
       // focus management of modal handled by template lifecycle if needed
       return;
     }
@@ -463,6 +461,7 @@ export class ReportPageComponent implements OnInit {
   cancelPublish(): void {
     this.showPublishConfirm = false;
     this.pendingWorkflowAction = null;
+    this.publishConfirmRequiresOverride = false;
     this.actionMessage = '';
   }
 
@@ -475,15 +474,16 @@ export class ReportPageComponent implements OnInit {
 
     this.showPublishConfirm = false;
     this.pendingWorkflowAction = null;
-    this.executeWorkflowAction(pending.taskId, pending.action);
+    this.publishConfirmRequiresOverride = false;
+    this.executeWorkflowAction(pending.taskId, pending.action, { forcePublish: Boolean(pending.forcePublish) });
   }
 
-  private executeWorkflowAction(taskId: string, action: TaskWorkflowAction): void {
+  private executeWorkflowAction(taskId: string, action: TaskWorkflowAction, options?: { forcePublish?: boolean }): void {
     this.runningAction = action;
     this.actionMessage = `${this.getActionLabel(action)} started for task ${taskId}.`;
 
     this.api
-      .runTaskWorkflowAction(taskId, action)
+      .runTaskWorkflowAction(taskId, action, options)
       .pipe(finalize(() => {
         if (this.taskId === taskId) {
           this.runningAction = null;
@@ -507,6 +507,22 @@ export class ReportPageComponent implements OnInit {
           this.loadReport(taskId);
         },
       });
+  }
+
+  getPublishConfirmMessage(): string {
+    if (this.publishConfirmRequiresOverride) {
+      return `Task ${this.taskId} is already in Completed status. Publish anyway? This will force a re-publish.`;
+    }
+
+    return `Publish task ${this.taskId}? This cannot be undone from the UI.`;
+  }
+
+  getPublishConfirmButtonLabel(): string {
+    if (this.runningAction === 'publish') {
+      return this.publishConfirmRequiresOverride ? 'Force Publishing...' : 'Publishing...';
+    }
+
+    return this.publishConfirmRequiresOverride ? 'Publish Anyway' : 'Publish';
   }
 
   async editConversation(): Promise<void> {

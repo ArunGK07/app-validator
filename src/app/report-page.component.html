@@ -204,10 +204,10 @@
   <div *ngIf="showPublishConfirm" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="publishConfirmTitle">
     <div class="modal" role="document">
       <h3 id="publishConfirmTitle">Confirm Publish</h3>
-      <p>Publish task {{ taskId }}? This cannot be undone from the UI.</p>
+      <p>{{ getPublishConfirmMessage() }}</p>
       <div class="modal-actions">
         <button type="button" class="action-button action-button--secondary" (click)="cancelPublish()">Cancel</button>
-        <button type="button" class="action-button" (click)="doPublishConfirmed()" [disabled]="isTaskActionDisabled() || runningAction">{{ runningAction ? 'Publishing...' : 'Publish' }}</button>
+        <button type="button" class="action-button" (click)="doPublishConfirmed()" [disabled]="isTaskActionDisabled() || runningAction">{{ getPublishConfirmButtonLabel() }}</button>
       </div>
     </div>
   </div>

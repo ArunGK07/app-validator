@@ -86,12 +86,14 @@ export function analyzeConstructs(codeText) {
 
 function _isHighSignalConstruct(label) {
   if (!label || typeof label !== 'string') return false;
+  const explicitHighSignalTokens = new Set(['nvl', 'open', 'with']);
   // Multi-token templates or templates with ellipsis, parentheses, or '%'
   if (label.includes(' ') || label.includes('...') || label.includes('(') || label.includes('%') || label.includes(':') || label.includes('/')) {
     return true;
   }
   // Single-word heuristics: treat short SQL operators as low-signal
   const shortLower = label.trim().toLowerCase();
+  if (explicitHighSignalTokens.has(shortLower)) return true;
   const lowSignalTokens = new Set(['in', 'and', 'is', 'as', 'on', 'by', 'to', 'set', 'desc', 'asc', 'or']);
   if (lowSignalTokens.has(shortLower)) return false;
   // Prefer words of length >= 5 as higher signal (COUNT, COMMIT, ROLLBACK etc.)

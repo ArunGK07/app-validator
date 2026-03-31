@@ -434,6 +434,25 @@ export async function listTaskOutputFiles(taskId, config) {
   }
 }
 
+export async function listTaskOutputTasks(config, filters = {}) {
+  const requestedTaskId = asString(filters.taskId).trim();
+
+  try {
+    const rootPath = pathResolve(config.taskOutputDir);
+    const entries = await readdir(rootPath, { withFileTypes: true });
+    const taskDirectories = entries.filter(
+      (entry) => entry.isDirectory() && isExactTaskId(entry.name) && (!requestedTaskId || entry.name === requestedTaskId),
+    );
+    const rows = await Promise.all(
+      taskDirectories.map((entry) => buildTaskOutputTaskRow(entry.name, join(rootPath, entry.name))),
+    );
+
+    return rows.sort((left, right) => right.taskId.localeCompare(left.taskId, undefined, { numeric: true, sensitivity: 'base' }));
+  } catch (error) {
+    throw asTaskOutputError(error, 'Task output directory was not found in the configured workspace.');
+  }
+}
+
 export async function readTaskOutputFile(taskId, name, config) {
   if (!name) {
     throw notFoundError('Select a file to view its content.');
@@ -665,6 +684,7 @@ export function normalizeConversation(record, businessStatus) {
     assignedUser,
     promptId,
     collabLink: resolveCollabLink(record, taskId),
+    source: 'conversation',
   };
 }
 
@@ -931,6 +951,52 @@ async function collectTaskOutputFiles(taskId, folderPath, relativePrefix, config
   }
 
   return files;
+}
+
+async function buildTaskOutputTaskRow(taskId, folderPath) {
+  const metadata = await readTaskOutputMetadata(taskId, folderPath);
+  const schema = resolveTaskSchemaInfo(metadata ?? {});
+  const metadataRecord = metadata ?? {};
+
+  return {
+    taskId,
+    metadata,
+    metadataPreview: summarizeMetadata(metadata),
+    status: 'Task Output',
+    businessStatus: 'Available Locally',
+    turnCount: inferTurnCount(metadata),
+    complexity: inferComplexity(metadata),
+    batchId: '',
+    batch: 'Task Output',
+    schemaName: schema.schemaName || 'Unknown',
+    assignedUser: 'Local folder',
+    promptId: findPromptIdentifier(metadataRecord) ?? undefined,
+    collabLink: resolveCollabLink(metadataRecord, taskId),
+    source: 'task-output',
+  };
+}
+
+async function readTaskOutputMetadata(taskId, folderPath) {
+  const entries = await readdir(folderPath, { withFileTypes: true });
+  const metadataEntry = entries.find((entry) => entry.isFile() && isTaskMetadataFile(entry.name, taskId));
+
+  if (!metadataEntry) {
+    return null;
+  }
+
+  try {
+    const content = await readFile(join(folderPath, metadataEntry.name), 'utf8');
+    return coerceStructuredValue(content);
+  } catch {
+    return null;
+  }
+}
+
+function isTaskMetadataFile(name, taskId) {
+  const normalizedName = name.trim().toLowerCase();
+  const normalizedTaskId = taskId.trim().toLowerCase();
+
+  return normalizedName === `${normalizedTaskId}_1metadata.json` || normalizedName.endsWith('metadata.json');
 }
 
 function pickReviewRecord(payload) {

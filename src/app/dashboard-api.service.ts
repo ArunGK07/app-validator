@@ -36,6 +36,8 @@ export class DashboardApiService {
   }
 
   getConversation(taskId: string): Observable<ConversationRow> {
+    const requestedTaskId = taskId.trim();
+
     return this.http.get<ConversationRow>(`/api/conversations/${encodeURIComponent(taskId)}`).pipe(
       catchError((error: unknown) => {
         const status = typeof error === 'object' && error !== null && 'status' in error
@@ -46,18 +48,27 @@ export class DashboardApiService {
           return throwError(() => error);
         }
 
-        const params = new HttpParams().set('taskId', taskId.trim());
+        const params = new HttpParams().set('taskId', requestedTaskId);
         return this.http.get<ConversationRow[]>('/api/conversations', { params }).pipe(
-          map((rows) => {
-            const row = rows.find((entry) => entry.taskId === taskId) ?? rows[0];
-            if (!row) {
-              throw error;
-            }
-            return row;
-          }),
+          map((rows) => this.pickConversationRow(rows, requestedTaskId, error)),
+          catchError(() =>
+            this.getTaskOutputTasks(requestedTaskId).pipe(
+              map((rows) => this.pickConversationRow(rows, requestedTaskId, error)),
+            ),
+          ),
         );
       }),
     );
+  }
+
+  getTaskOutputTasks(taskId = ''): Observable<ConversationRow[]> {
+    let params = new HttpParams();
+
+    if (taskId.trim()) {
+      params = params.set('taskId', taskId.trim());
+    }
+
+    return this.http.get<ConversationRow[]>('/api/task-output/tasks', { params });
   }
 
   editConversation(taskId: string, reason = 'Fixing client feedback'): Observable<unknown> {
@@ -74,8 +85,11 @@ export class DashboardApiService {
     return this.http.put<TaskReportFile>(`/api/reports/${encodeURIComponent(taskId)}/file`, { content }, { params });
   }
 
-  runTaskWorkflowAction(taskId: string, action: TaskWorkflowAction): Observable<TaskWorkflowActionResult> {
-    return this.http.post<TaskWorkflowActionResult>(`/api/tasks/${encodeURIComponent(taskId)}/actions/${encodeURIComponent(action)}`, {});
+  runTaskWorkflowAction(taskId: string, action: TaskWorkflowAction, options?: { forcePublish?: boolean }): Observable<TaskWorkflowActionResult> {
+    return this.http.post<TaskWorkflowActionResult>(
+      `/api/tasks/${encodeURIComponent(taskId)}/actions/${encodeURIComponent(action)}`,
+      { forcePublish: Boolean(options?.forcePublish) },
+    );
   }
 
   fetchTaskOutput(
@@ -105,6 +119,16 @@ export class DashboardApiService {
     }
 
     return this.http.get<ConversationRow[]>('/api/conversations', { params });
+  }
+
+  private pickConversationRow(rows: ConversationRow[], taskId: string, fallbackError: unknown): ConversationRow {
+    const row = rows.find((entry) => entry.taskId === taskId) ?? rows[0];
+
+    if (!row) {
+      throw fallbackError;
+    }
+
+    return row;
   }
 }
 

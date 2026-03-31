@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { runTaskWorkflowAction } from './task-workflows.mjs';
-import { analyzeConstructs, analyzeReasoningTypes, formatCommaLines } from './generation/analyzers.mjs';
+import { analyzeConstructsHighSignal, analyzeReasoningTypes, formatCommaLines } from './generation/analyzers.mjs';
 import { PLSQL_CONSTRUCT_CATALOG, PLSQL_REASONING_TYPE_CATALOG } from './generation/reference-data.mjs';
 
 function createNamingConnectionStub() {
@@ -80,7 +80,7 @@ async function writeValidationFixture(taskDir, taskId = '9418') {
     'utf8',
   );
   await writeFile(join(taskDir, `${taskId}_turn1_6reasoningTypes.txt`), `${formatCommaLines(analyzeReasoningTypes(codeText))}\n`, 'utf8');
-  await writeFile(join(taskDir, `${taskId}_turn1_7plSqlConstructs.txt`), `${formatCommaLines(analyzeConstructs(codeText))}\n`, 'utf8');
+  await writeFile(join(taskDir, `${taskId}_turn1_7plSqlConstructs.txt`), `${formatCommaLines(analyzeConstructsHighSignal(codeText))}\n`, 'utf8');
 }
 
 async function writeWorkflowFixture(taskDir, taskId = '9462') {
