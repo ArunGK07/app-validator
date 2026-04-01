@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+﻿import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import { resolve as pathResolve, relative as pathRelative } from 'node:path';
 
 import { resolveAuthorizationHeader } from './auth-header.mjs';
@@ -8,6 +8,7 @@ import { formatTaskArtifactName } from './workspace-config.mjs';
 
 const DEFAULT_GRAPHQL_URL = 'https://rlhf-api.turing.com/graphql';
 const DEFAULT_LABELING_BASE_URL = 'https://labeling-o.turing.com';
+const PUBLISH_CONTEXT_VERSION = 1;
 const logger = createLogger('task-output');
 const EXTRACTED_NAME_TEMPLATE_KEY_BY_NORMALIZED_NAME = {
   user: 'turn_user_file',
@@ -51,7 +52,7 @@ export async function fetchTaskOutputArtifacts(task, config, dependencies = {}) 
   const normalizedMetadata = isRecord(task?.metadata) ? buildTaskMetadataPayload(taskId, task.metadata, collabLink) : null;
   const hydratedResponsePayload = applyTaskMetadataToPromptPayload(responsePayload, normalizedMetadata);
   const metadataFile = await writeTaskMetadataFile(taskId, task?.metadata, collabLink, config);
-  const outputPath = await writeExistingOutputFile(taskId, collabLink, promptId, hydratedResponsePayload, config);
+  const taskStatePath = await writePublishContextFile(taskId, collabLink, promptId, hydratedResponsePayload, config);
   const generatedFiles = await extractPromptTurnEvaluations(taskId, hydratedResponsePayload, config);
   const schemaResult = await tryGenerateSchemaArtifact(
     {
@@ -66,7 +67,7 @@ export async function fetchTaskOutputArtifacts(task, config, dependencies = {}) 
     taskId,
     promptId,
     generatedFileCount: generatedFiles.length,
-    existingOutputFile: outputPath.name,
+    taskStateFile: taskStatePath.name,
     metadataFile,
     schemaFile: schemaResult.schemaFile,
   });
@@ -77,7 +78,7 @@ export async function fetchTaskOutputArtifacts(task, config, dependencies = {}) 
     collabLink,
     graphqlUrl: config.rlhfGraphqlUrl ?? DEFAULT_GRAPHQL_URL,
     folderPath: resolveTaskOutputFolder(taskId, config),
-    existingOutputFile: outputPath.name,
+    taskStateFile: taskStatePath.name,
     metadataFile,
     generatedFiles,
     schemaFile: schemaResult.schemaFile,
@@ -86,27 +87,6 @@ export async function fetchTaskOutputArtifacts(task, config, dependencies = {}) 
   };
 }
 
-export async function repairTaskOutputArtifactsFromExistingOutput(taskId, config) {
-  try {
-    const taskDir = await ensureTaskOutputFolder(taskId, config);
-    const existingOutputPath = pathResolve(taskDir, formatTaskOutputName('existing_output_file', { taskId }));
-    const source = await readFile(existingOutputPath, 'utf8');
-    const payload = JSON.parse(source);
-    const responsePayload = isRecord(payload) ? payload.response : null;
-
-    if (!isRecord(responsePayload)) {
-      return [];
-    }
-
-    return extractPromptTurnEvaluations(taskId, responsePayload, config);
-  } catch (error) {
-    logger.debug('Skipped local task output repair from existing_output', {
-      taskId,
-      message: error instanceof Error ? error.message : 'Unknown repair error',
-    });
-    return [];
-  }
-}
 
 async function fetchCollabLinkFromReviews(taskId, config) {
   logger.debug('Looking up colabLink from reviews api', { taskId });
@@ -245,20 +225,52 @@ function normalizeTaskIdForMetadata(taskId) {
   return /^\d+$/.test(taskId) ? Number(taskId) : taskId;
 }
 
-async function writeExistingOutputFile(taskId, collabLink, promptId, responsePayload, config) {
+async function writePublishContextFile(taskId, collabLink, promptId, responsePayload, config) {
   const taskDir = await ensureTaskOutputFolder(taskId, config);
-  const outputPath = pathResolve(taskDir, formatTaskOutputName('existing_output_file', { taskId }));
-  const payload = {
-    task_id: Number(taskId),
-    colabLink: collabLink || null,
+  const outputPath = pathResolve(taskDir, formatTaskOutputName('publish_context_file', { taskId }));
+  const payload = buildPublishContextPayload(taskId, collabLink, promptId, responsePayload, config);
+
+  await mkdir(pathResolve(taskDir, '_internal'), { recursive: true });
+  await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
+  return { name: formatTaskOutputName('publish_context_file', { taskId }), path: outputPath };
+}
+
+function buildPublishContextPayload(taskId, collabLink, promptId, responsePayload, config) {
+  return {
+    version: PUBLISH_CONTEXT_VERSION,
+    task_id: normalizeTaskIdForMetadata(taskId),
     prompt_id: promptId,
+    colabLink: collabLink || null,
     graphql_url: config.rlhfGraphqlUrl ?? DEFAULT_GRAPHQL_URL,
     fetched_at_utc: new Date().toISOString(),
-    response: responsePayload,
+    turns: extractPromptTurnContexts(responsePayload),
   };
+}
 
-  await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
-  return { name: formatTaskOutputName('existing_output_file', { taskId }), path: outputPath };
+function extractPromptTurnContexts(responsePayload) {
+  const promptTurns = responsePayload?.data?.prompt?.promptTurns;
+
+  if (!Array.isArray(promptTurns)) {
+    return [];
+  }
+
+  return promptTurns
+    .map((promptTurn, index) => {
+      if (!isRecord(promptTurn)) {
+        return null;
+      }
+
+      return {
+        turnNumber: Number.isInteger(promptTurn.promptIndex) ? promptTurn.promptIndex + 1 : index + 1,
+        promptTurnId: asOptionalString(promptTurn.id) || null,
+        preferenceSignal: promptTurn.preferenceSignal ?? null,
+        unratable: Boolean(promptTurn.unratable),
+        promptEvaluationFeedback: isRecord(promptTurn.promptEvaluationFeedback)
+          ? promptTurn.promptEvaluationFeedback
+          : null,
+      };
+    })
+    .filter(Boolean);
 }
 
 async function extractPromptTurnEvaluations(taskId, responsePayload, config) {
@@ -726,3 +738,6 @@ async function safeReadText(response) {
     return '';
   }
 }
+
+
+

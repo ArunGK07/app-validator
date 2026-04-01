@@ -1,10 +1,9 @@
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+﻿import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve as pathResolve, relative as pathRelative } from 'node:path';
 import { URL, URLSearchParams } from 'node:url';
 
 import { resolveAuthorizationHeader } from './auth-header.mjs';
 import { createLogger, isBackendDebugEnabled, sanitizeHeaders } from './logger.mjs';
-import { repairTaskOutputArtifactsFromExistingOutput } from './task-output-fetcher.mjs';
 import { extendRuntimeConfigWithWorkflowDefaults } from './task-workflows.mjs';
 import { getSchemaCacheDir, getTaskOutputDir } from './workspace-config.mjs';
 import { resolveTaskRouting } from './schema-db-config.mjs';
@@ -425,7 +424,6 @@ export async function fetchPromptById(id, env = process.env) {
 export async function listTaskOutputFiles(taskId, config) {
   try {
     const folderPath = resolveTaskOutputFolder(taskId, config);
-    await repairTaskOutputArtifactsFromExistingOutput(taskId, config);
     const files = await collectTaskOutputFiles(taskId, folderPath, '', config);
 
     return {
@@ -1087,6 +1085,10 @@ async function collectTaskOutputFiles(taskId, folderPath, relativePrefix, config
     const relativeName = relativePrefix ? `${relativePrefix}/${entry.name}` : entry.name;
 
     if (entry.isDirectory()) {
+      if (entry.name.toLowerCase() === '_internal') {
+        continue;
+      }
+
       files.push(...(await collectTaskOutputFiles(taskId, join(folderPath, entry.name), relativeName, config)));
       continue;
     }
@@ -1680,4 +1682,5 @@ async function safeReadText(response) {
     return '';
   }
 }
+
 

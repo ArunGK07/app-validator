@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+﻿import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { basename, join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -113,10 +113,40 @@ async function writeWorkflowFixture(taskDir, taskId = '9462') {
   );
   await writeFile(join(taskDir, `${taskId}_turn1_6reasoningTypes.txt`), 'Data Retrieval\n', 'utf8');
   await writeFile(join(taskDir, `${taskId}_turn1_7plSqlConstructs.txt`), 'CREATE OR REPLACE PROCEDURE\n', 'utf8');
+  await mkdir(join(taskDir, '_internal'), { recursive: true });
+  await writeFile(
+    join(taskDir, '_internal', `${taskId}_publishContext.json`),
+    JSON.stringify({
+      version: 1,
+      task_id: Number(taskId),
+      prompt_id: `prompt-${taskId}`,
+      colabLink: 'https://labeling-o.turing.com/conversations/9462/view',
+      graphql_url: 'https://rlhf-api.turing.com/graphql',
+      fetched_at_utc: '2026-03-21T00:00:00.000Z',
+      turns: [
+        {
+          turnNumber: 1,
+          promptTurnId: 'turn-1',
+          preferenceSignal: null,
+          unratable: false,
+          promptEvaluationFeedback: {
+            promptTurnEvaluation: [{ name: 'user', value: 'old prompt' }],
+          },
+        },
+      ],
+    }),
+    'utf8',
+  );
+}
+
+async function writeLegacyWorkflowFixture(taskDir, taskId = '9462') {
+  await writeWorkflowFixture(taskDir, taskId);
+  await rm(join(taskDir, '_internal'), { recursive: true, force: true });
   await writeFile(
     join(taskDir, `${taskId}_existing_output.json`),
     JSON.stringify({
       task_id: Number(taskId),
+      prompt_id: `prompt-${taskId}`,
       colabLink: 'https://labeling-o.turing.com/conversations/9462/view',
       response: {
         data: {
@@ -403,6 +433,48 @@ test('runTaskWorkflowAction(publish) uses the native GraphQL publisher', async (
   }
 });
 
+
+test('runTaskWorkflowAction(publish) falls back to legacy existing_output when the publish context is absent', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-workflows-'));
+  const taskOutputDir = join(root, 'task-output');
+  const taskDir = join(taskOutputDir, '9462');
+  const requests = [];
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeLegacyWorkflowFixture(taskDir);
+
+    const result = await runTaskWorkflowAction(
+      'publish',
+      '9462',
+      {
+        cookie: 'cookie=value',
+        taskOutputDir,
+        trainerProjectDir: 'D:\\Turing\\Projects\\workspace\\llm-trainer-project',
+      },
+      {
+        publishDependencies: {
+          fetchImpl: async (url, init) => {
+            requests.push({ url, init });
+            return {
+              ok: true,
+              status: 200,
+              async json() {
+                return { data: { reviewPromptTurn: { id: 'turn-1' } } };
+              },
+            };
+          },
+        },
+      },
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, 'https://rlhf-api.turing.com/graphql');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test('runTaskWorkflowAction(publish) retries transient fetch failures and records recovery in the log', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-workflows-'));
   const taskOutputDir = join(root, 'task-output');
@@ -449,4 +521,5 @@ test('runTaskWorkflowAction(publish) retries transient fetch failures and record
     await rm(root, { recursive: true, force: true });
   }
 });
+
 

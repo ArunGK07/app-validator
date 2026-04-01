@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+﻿import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { resolveAuthorizationHeader } from '../auth-header.mjs';
@@ -36,20 +36,19 @@ export async function runNativePublish(taskId, taskDir, logFilePath, config, dep
   const startedAt = new Date();
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const retryAttempts = resolveRetryAttempts(config, dependencies);
-  const existingOutputPath = join(taskDir, formatTaskArtifactName('existing_output_file', { taskId }));
-  const existingOutput = JSON.parse(await readFile(existingOutputPath, 'utf8'));
-  const referer = String(existingOutput?.colabLink ?? '').trim();
+  const publishContext = await loadPublishContext(taskId, taskDir);
+  const referer = String(publishContext?.colabLink ?? '').trim();
   if (!referer) {
-    throw new Error('Missing colabLink in existing output JSON');
+    throw new Error(`Missing colabLink in publish context for task ${taskId}. Re-fetch the task output before publishing.`);
   }
 
-  const turnNumbers = await detectAvailableTurns(taskDir, taskId, existingOutput);
+  const turnNumbers = await detectAvailableTurns(taskDir, taskId, publishContext);
   const logLines = [];
   let successCount = 0;
 
   for (const turnNumber of turnNumbers) {
     try {
-      const payload = await buildReviewPayload(taskId, taskDir, existingOutput, turnNumber);
+      const payload = await buildReviewPayload(taskId, taskDir, publishContext, turnNumber);
       const publishResult = await submitReviewPayload(fetchImpl, payload, referer, config.cookie, retryAttempts);
       successCount += 1;
       logLines.push(
@@ -92,6 +91,29 @@ function resolveRetryAttempts(config, dependencies) {
   const rawValue = dependencies.retryAttempts ?? config.publishRetryAttempts ?? DEFAULT_RETRY_ATTEMPTS;
   const parsed = Number.parseInt(String(rawValue ?? ''), 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_RETRY_ATTEMPTS;
+}
+
+async function loadPublishContext(taskId, taskDir) {
+  const publishContextPath = join(taskDir, formatTaskArtifactName('publish_context_file', { taskId }));
+
+  try {
+    return normalizePublishContext(taskId, JSON.parse(await readFile(publishContextPath, 'utf8')));
+  } catch (error) {
+    if (!isMissingFileError(error)) {
+      throw error;
+    }
+  }
+
+  const legacyPath = join(taskDir, formatTaskArtifactName('existing_output_file', { taskId }));
+
+  try {
+    return normalizeLegacyPublishContext(taskId, JSON.parse(await readFile(legacyPath, 'utf8')));
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      throw new Error(`Missing publish context for task ${taskId}. Re-fetch the task output before publishing.`);
+    }
+    throw error;
+  }
 }
 
 async function submitReviewPayload(fetchImpl, payload, referer, cookie, retryAttempts) {
@@ -214,10 +236,14 @@ function delay(durationMs) {
   return new Promise((resolve) => setTimeout(resolve, durationMs));
 }
 
-async function detectAvailableTurns(taskDir, taskId, existingOutput) {
-  const turns = Array.isArray(existingOutput?.response?.data?.prompt?.promptTurns) ? existingOutput.response.data.prompt.promptTurns : [];
+async function detectAvailableTurns(taskDir, taskId, publishContext) {
+  const turns = Array.isArray(publishContext?.turns) ? publishContext.turns : [];
   const discovered = [];
-  for (let turnNumber = 1; turnNumber <= turns.length; turnNumber += 1) {
+  for (const turn of turns) {
+    const turnNumber = Number.isInteger(turn?.turnNumber) ? turn.turnNumber : null;
+    if (turnNumber === null) {
+      continue;
+    }
     try {
       await loadTurnFileValues(taskDir, taskId, turnNumber);
       discovered.push(turnNumber);
@@ -229,9 +255,9 @@ async function detectAvailableTurns(taskDir, taskId, existingOutput) {
   return discovered;
 }
 
-async function buildReviewPayload(taskId, taskDir, existingOutput, turnNumber) {
-  const promptTurn = getPromptTurn(existingOutput, turnNumber);
-  const promptTurnId = String(promptTurn?.id ?? '').trim();
+async function buildReviewPayload(taskId, taskDir, publishContext, turnNumber) {
+  const promptTurn = getPromptTurn(publishContext, turnNumber);
+  const promptTurnId = String(promptTurn?.promptTurnId ?? '').trim();
   if (!promptTurnId) {
     throw new Error(`Missing prompt turn id for turn ${turnNumber}`);
   }
@@ -255,12 +281,12 @@ async function buildReviewPayload(taskId, taskDir, existingOutput, turnNumber) {
   };
 }
 
-function getPromptTurn(existingOutput, turnNumber) {
-  const turns = existingOutput?.response?.data?.prompt?.promptTurns;
-  if (!Array.isArray(turns)) {
-    throw new Error('Missing promptTurns in existing output JSON');
+function getPromptTurn(publishContext, turnNumber) {
+  const turns = publishContext?.turns;
+  if (!Array.isArray(turns) || !turns.length) {
+    throw new Error(`Missing prompt turns in publish context for task ${publishContext?.taskId ?? 'unknown'}. Re-fetch the task output before publishing.`);
   }
-  return turns.find((turn, index) => (Number.isInteger(turn?.promptIndex) ? turn.promptIndex + 1 : index + 1) === turnNumber);
+  return turns.find((turn) => turn.turnNumber === turnNumber);
 }
 
 async function loadTurnFileValues(taskDir, taskId, turnNumber) {
@@ -296,6 +322,62 @@ function buildPromptTurnEvaluation(promptTurn, fileValues) {
   return updated;
 }
 
+function normalizePublishContext(taskId, payload) {
+  const turns = Array.isArray(payload?.turns) ? payload.turns : null;
+
+  if (!turns) {
+    return normalizeLegacyPublishContext(taskId, payload);
+  }
+
+  return {
+    taskId: String(taskId),
+    promptId: typeof payload?.prompt_id === 'string' ? payload.prompt_id.trim() : '',
+    colabLink: typeof payload?.colabLink === 'string' ? payload.colabLink.trim() : '',
+    turns: turns
+      .map((turn, index) => normalizeStoredTurn(turn, index))
+      .filter(Boolean),
+  };
+}
+
+function normalizeLegacyPublishContext(taskId, payload) {
+  const promptTurns = Array.isArray(payload?.response?.data?.prompt?.promptTurns) ? payload.response.data.prompt.promptTurns : [];
+
+  return {
+    taskId: String(taskId),
+    promptId: typeof payload?.prompt_id === 'string' ? payload.prompt_id.trim() : '',
+    colabLink: typeof payload?.colabLink === 'string' ? payload.colabLink.trim() : '',
+    turns: promptTurns
+      .map((turn, index) => {
+        if (!isRecord(turn)) {
+          return null;
+        }
+
+        return {
+          turnNumber: Number.isInteger(turn.promptIndex) ? turn.promptIndex + 1 : index + 1,
+          promptTurnId: typeof turn.id === 'string' ? turn.id.trim() : '',
+          preferenceSignal: turn.preferenceSignal ?? null,
+          unratable: Boolean(turn.unratable),
+          promptEvaluationFeedback: isRecord(turn.promptEvaluationFeedback) ? turn.promptEvaluationFeedback : null,
+        };
+      })
+      .filter(Boolean),
+  };
+}
+
+function normalizeStoredTurn(turn, index) {
+  if (!isRecord(turn)) {
+    return null;
+  }
+
+  return {
+    turnNumber: Number.isInteger(turn.turnNumber) ? turn.turnNumber : index + 1,
+    promptTurnId: typeof turn.promptTurnId === 'string' ? turn.promptTurnId.trim() : '',
+    preferenceSignal: turn.preferenceSignal ?? null,
+    unratable: Boolean(turn.unratable),
+    promptEvaluationFeedback: isRecord(turn.promptEvaluationFeedback) ? turn.promptEvaluationFeedback : null,
+  };
+}
+
 function canonicalizeFieldName(name) {
   const normalized = normalizeFieldName(name);
   return Object.keys(FIELD_ALIASES).find((field) => FIELD_ALIASES[field].some((alias) => normalizeFieldName(alias) === normalized)) ?? null;
@@ -303,4 +385,12 @@ function canonicalizeFieldName(name) {
 
 function normalizeFieldName(name) {
   return String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function isMissingFileError(error) {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT');
+}
+
+function isRecord(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

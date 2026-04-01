@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+﻿import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -714,10 +714,13 @@ test('listTaskOutputFiles returns sorted files from the configured task folder i
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-report-'));
   const taskDir = join(root, '24696');
   const logsDir = join(taskDir, '_logs');
+  const internalDir = join(taskDir, '_internal');
 
   try {
     await mkdir(taskDir);
     await mkdir(logsDir);
+    await mkdir(internalDir);
+    await writeFile(join(internalDir, '24696_publishContext.json'), '{"hidden":true}');
     await writeFile(join(taskDir, '24696_turn2.txt'), 'turn 2');
     await writeFile(join(taskDir, '24696_turn1.txt'), 'turn 1');
     await writeFile(join(logsDir, 'validate-2026-03-21.log'), 'log output');
@@ -736,7 +739,6 @@ test('listTaskOutputFiles returns sorted files from the configured task folder i
     await rm(root, { recursive: true, force: true });
   }
 });
-
 test('listTaskOutputTasks returns local task rows from task-output folders', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-output-'));
   const newerTaskDir = join(root, '15835');
@@ -778,96 +780,24 @@ test('listTaskOutputTasks returns local task rows from task-output folders', asy
   }
 });
 
-test('listTaskOutputFiles repairs broken prompt artifacts from existing_output before returning files', async () => {
+test('listTaskOutputFiles hides internal publish context artifacts from the returned report', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-report-'));
   const taskDir = join(root, '15835');
+  const internalDir = join(taskDir, '_internal');
 
   try {
-    await mkdir(taskDir);
-    await writeFile(
-      join(taskDir, '15835_turn1_1user.txt'),
-      [
-        'Write an anonymous block that analyzes fatal traffic collisions for a specific county.',
-        '',
-        'Requirements:',
-        'Anonymous Block Name: Anonymous PL/SQL block.',
-        '',
-        'Parameters:',
-        '',
-        'Output:',
-        '',
-        'Exception Handling:',
-        '',
-      ].join('\n'),
-    );
-    await writeFile(
-      join(taskDir, '15835_existing_output.json'),
-      JSON.stringify(
-        {
-          response: {
-            data: {
-              prompt: {
-                promptTurns: [
-                  {
-                    promptIndex: 0,
-                    promptEvaluationFeedback: {
-                      promptTurnEvaluation: [
-                        {
-                          name: 'user',
-                          value: [
-                            'Write an anonymous block that analyzes fatal traffic collisions for a specific county.',
-                            '',
-                            'Requirements:',
-                            'Anonymous Block Name: Anonymous PL/SQL block.',
-                            '',
-                            "Parameters: Declare gc_county_name as CONSTANT VARCHAR2(100) := 'los angeles'. Declare gc_severity_fatal as CONSTANT VARCHAR2(20) := 'fatal'.",
-                            '',
-                            "Output: Print exactly: '=== Fatal Collision Analysis ===' then 'County: <value>'.",
-                            '',
-                            "Exception Handling: If gc_county_name is NULL print exactly: 'ERROR: County name cannot be NULL.' and terminate.",
-                          ].join('\n'),
-                        },
-                      ],
-                    },
-                  },
-                ],
-              },
-            },
-          },
-        },
-        null,
-        2,
-      ),
-    );
+    await mkdir(internalDir, { recursive: true });
+    await writeFile(join(taskDir, '15835_turn1_1user.txt'), 'Prompt body');
+    await writeFile(join(internalDir, '15835_publishContext.json'), '{"hidden":true}');
 
     const report = await listTaskOutputFiles('15835', { taskOutputDir: root });
 
     assert.equal(report.taskId, '15835');
-    assert.equal(
-      await readFile(join(taskDir, '15835_turn1_1user.txt'), 'utf8'),
-      [
-        'Write an anonymous block that analyzes fatal traffic collisions for a specific county.',
-        '',
-        'Requirements:',
-        'Anonymous Block:',
-        '',
-        'Parameters:',
-        "  Declare gc_county_name as CONSTANT VARCHAR2(100) := 'los angeles'. Declare gc_severity_fatal as CONSTANT VARCHAR2(20) := 'fatal'.",
-        '',
-        'Output:',
-        "  Print exactly: '=== Fatal Collision Analysis ===' then 'County: <value>'.",
-        '',
-        'Exception Handling:',
-        "  If gc_county_name is NULL print exactly : 'ERROR: County name cannot be NULL.' and terminate.",
-        '',
-      ].join('\n'),
-    );
-    assert.ok(report.files.some((file) => file.name === '15835_turn1_1user.txt'));
+    assert.deepEqual(report.files.map((file) => file.name), ['15835_turn1_1user.txt']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
-
 test('readTaskOutputFile returns file contents from the configured task folder', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-report-'));
   const taskDir = join(root, '9479');
@@ -945,4 +875,6 @@ test('writeTaskOutputFile rejects non-editable file extensions', async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
 

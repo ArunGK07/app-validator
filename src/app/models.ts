@@ -1,4 +1,4 @@
-export interface TeamMember {
+﻿export interface TeamMember {
   id: string;
   name: string;
   email: string;
@@ -93,7 +93,7 @@ export interface TaskFetchResult {
   collabLink: string | null;
   graphqlUrl: string;
   folderPath: string;
-  existingOutputFile: string;
+  taskStateFile: string;
   metadataFile: string | null;
   generatedFiles: string[];
   schemaFile: string | null;
@@ -244,3 +244,4 @@ export interface ValidationMasterReport {
   results: ValidationResultRow[];
   fileReports: ValidationFileReportIndexEntry[];
 }
+

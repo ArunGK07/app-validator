@@ -1,4 +1,4 @@
-import { resolve as pathResolve } from 'node:path';
+﻿import { resolve as pathResolve } from 'node:path';
 
 export const DEFAULT_TASK_OUTPUT_DIR = pathResolve('D:/Turing/Projects/workspace/task-output');
 const DEFAULT_SCHEMA_CACHE_DIR_NAME = 'schema';
@@ -41,6 +41,7 @@ export function formatTaskArtifactName(templateKey, values = {}) {
     .replace(/\{taskId\}/g, values.taskId ?? '')
     .replace(/\{turnNumber\}/g, values.turnNumber ?? '');
 }
+
 
 
 

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+﻿import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { fetchTaskOutputArtifacts } from './task-output-fetcher.mjs';
 
-test('fetchTaskOutputArtifacts writes existing_output and extracted turn files', async () => {
+test('fetchTaskOutputArtifacts writes the small publish context and extracted turn files', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-fetch-output-'));
   const originalFetch = global.fetch;
 
@@ -67,6 +67,7 @@ test('fetchTaskOutputArtifacts writes existing_output and extracted turn files',
     assert.equal(result.taskId, '24696');
     assert.equal(result.promptId, 'prompt-123');
     assert.equal(result.metadataFile, null);
+    assert.equal(result.taskStateFile, '_internal/24696_publishContext.json');
     assert.deepEqual(result.generatedFiles, [
       '24696_turn1_1user.txt',
       '24696_turn1_4referenceAnswer.sql',
@@ -74,9 +75,15 @@ test('fetchTaskOutputArtifacts writes existing_output and extracted turn files',
       '24696_turn2_5testCases.sql',
     ]);
 
-    const existingOutput = JSON.parse(await readFile(join(root, '24696', '24696_existing_output.json'), 'utf8'));
-    assert.equal(existingOutput.task_id, 24696);
-    assert.equal(existingOutput.prompt_id, 'prompt-123');
+    const publishContext = JSON.parse(await readFile(join(root, '24696', '_internal', '24696_publishContext.json'), 'utf8'));
+    assert.equal(publishContext.version, 1);
+    assert.equal(publishContext.task_id, 24696);
+    assert.equal(publishContext.prompt_id, 'prompt-123');
+    assert.equal(publishContext.colabLink, 'https://rlhf-v3.turing.com/prompt/prompt-123');
+    assert.equal(Array.isArray(publishContext.turns), true);
+    assert.equal(publishContext.turns.length, 2);
+    assert.equal('response' in publishContext, false);
+    await assert.rejects(readFile(join(root, '24696', '24696_existing_output.json'), 'utf8'), { code: 'ENOENT' });
 
     assert.equal(await readFile(join(root, '24696', '24696_turn1_1user.txt'), 'utf8'), 'Prompt turn 1\n');
     assert.equal(await readFile(join(root, '24696', '24696_turn1_4referenceAnswer.sql'), 'utf8'), 'select 1 from dual;\n');
@@ -689,7 +696,7 @@ test('fetchTaskOutputArtifacts writes the metadata file and includes the schema 
   }
 });
 
-test('fetchTaskOutputArtifacts overlays task metadata into existing_output prompt metadata blocks', async () => {
+test('fetchTaskOutputArtifacts writes only the minimal publish context needed after extraction', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-fetch-output-'));
   const originalFetch = global.fetch;
 
@@ -701,21 +708,21 @@ test('fetchTaskOutputArtifacts overlays task metadata into existing_output promp
             id: 'prompt-15761',
             type: 'PROMPT',
             complexity: 'intermediate',
-            required_debugging_task: true,
             metadata: {
               complexity: 'intermediate',
-              required_debugging_task: true,
             },
             turingMetadata: {
               complexity: 'intermediate',
-              required_debugging_task: true,
             },
             formData: {
               feedback: null,
             },
             promptTurns: [
               {
+                id: 'turn-1',
                 promptIndex: 0,
+                preferenceSignal: 'preferred',
+                unratable: false,
                 promptEvaluationFeedback: {
                   promptTurnEvaluation: [{ name: 'User', value: 'Prompt body' }],
                 },
@@ -745,11 +752,20 @@ test('fetchTaskOutputArtifacts overlays task metadata into existing_output promp
       },
     );
 
-    const existingOutput = JSON.parse(await readFile(join(root, '15761', '15761_existing_output.json'), 'utf8'));
-    assert.equal(existingOutput.response.data.prompt.required_debugging_task, false);
-    assert.equal(existingOutput.response.data.prompt.metadata.required_debugging_task, false);
-    assert.equal(existingOutput.response.data.prompt.turingMetadata.required_debugging_task, false);
-    assert.equal(existingOutput.response.data.prompt.required_triggers, false);
+    const publishContext = JSON.parse(await readFile(join(root, '15761', '_internal', '15761_publishContext.json'), 'utf8'));
+    assert.equal(publishContext.version, 1);
+    assert.equal(publishContext.colabLink, 'https://rlhf-v3.turing.com/prompt/prompt-15761');
+    assert.equal(Array.isArray(publishContext.turns), true);
+    assert.deepEqual(publishContext.turns[0], {
+      turnNumber: 1,
+      promptTurnId: 'turn-1',
+      preferenceSignal: 'preferred',
+      unratable: false,
+      promptEvaluationFeedback: {
+        promptTurnEvaluation: [{ name: 'User', value: 'Prompt body' }],
+      },
+    });
+    assert.equal('response' in publishContext, false);
   } finally {
     global.fetch = originalFetch;
     await rm(root, { recursive: true, force: true });
