@@ -6,6 +6,7 @@ const DEFAULT_SCHEMA_CACHE_DIR_NAME = 'schema';
 const TASK_ARTIFACT_TEMPLATES = {
   schema_file: '{taskId}_0schema.json',
   existing_output_file: '{taskId}_existing_output.json',
+  publish_context_file: '_internal/{taskId}_publishContext.json',
   metadata_file: '{taskId}_1metadata.json',
   extracted_value_file_prefix: '{taskId}_turn{turnNumber}_',
   extracted_value_file_suffix: '.txt',
@@ -41,6 +42,7 @@ export function formatTaskArtifactName(templateKey, values = {}) {
     .replace(/\{taskId\}/g, values.taskId ?? '')
     .replace(/\{turnNumber\}/g, values.turnNumber ?? '');
 }
+
 
 
 
