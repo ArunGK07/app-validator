@@ -1,0 +1,135 @@
+<div class="review-shell">
+
+  <header class="review-header">
+    <div class="review-header__nav">
+      <button class="btn btn-secondary btn-back" type="button" (click)="goBack()">
+        <svg viewBox="0 0 20 20" aria-hidden="true" width="16" height="16">
+          <path d="M13.41 6L12 4.59 6.59 10 12 15.41 13.41 14l-4-4z" fill="currentColor"/>
+        </svg>
+        Back to dashboard
+      </button>
+    </div>
+    <div class="review-header__title">
+      <p class="section-tag">Task-output view</p>
+      <h2>
+        Review Details
+        <a
+          *ngIf="taskId"
+          class="task-link"
+          [href]="labelingHref"
+          target="_blank"
+          rel="noopener noreferrer"
+          [attr.aria-label]="'Open task ' + taskId + ' in labeling tool'"
+        >
+          #{{ taskId }}
+          <svg viewBox="0 0 20 20" aria-hidden="true" width="14" height="14">
+            <path d="M11 3h6v6h-2V6.41l-7.29 7.3-1.42-1.42L13.59 5H11V3Zm4 14H5V5h4V3H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4h-2v4Z" fill="currentColor"/>
+          </svg>
+        </a>
+      </h2>
+    </div>
+  </header>
+
+  <div *ngIf="loading" class="loading-state" role="status" aria-busy="true">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>Loading review details…</span>
+  </div>
+
+  <div *ngIf="error && !loading" class="notice notice--error">{{ error }}</div>
+
+  <div *ngIf="review && !loading" class="review-content">
+
+    <!-- Score card -->
+    <section class="review-card review-card--score">
+      <p class="review-card__label">Score</p>
+      <div class="score-display" [ngClass]="scoreClass">
+        <span class="score-value" *ngIf="review.score != null">
+          {{ review.score | number: '1.0-1' }}%
+        </span>
+        <span class="score-value score-value--empty" *ngIf="review.score == null">No score</span>
+      </div>
+      <div class="review-meta">
+        <span *ngIf="review.reviewerName" class="meta-item">
+          <strong>Reviewer:</strong> {{ review.reviewerName }}
+          <ng-container *ngIf="review.reviewerEmail"> ({{ review.reviewerEmail }})</ng-container>
+        </span>
+        <span *ngIf="review.reviewType" class="meta-item">
+          <strong>Type:</strong> {{ review.reviewType }}
+        </span>
+        <span *ngIf="review.status" class="meta-item">
+          <strong>Status:</strong> {{ review.status }}
+        </span>
+        <span *ngIf="review.followupRequired != null" class="meta-item">
+          <strong>Followup required:</strong>
+          <span [class.text-warn]="review.followupRequired">
+            {{ review.followupRequired ? 'Yes' : 'No' }}
+          </span>
+        </span>
+      </div>
+    </section>
+
+    <!-- Feedback -->
+    <section class="review-card" *ngIf="review.feedback">
+      <p class="review-card__label">Feedback</p>
+      <p class="review-feedback">{{ review.feedback }}</p>
+    </section>
+
+    <!-- Quality dimensions -->
+    <section class="review-card" *ngIf="review.qualityDimensions.length">
+      <p class="review-card__label">Quality Dimensions</p>
+      <table class="qd-table">
+        <thead>
+          <tr>
+            <th>Dimension</th>
+            <th>
+              <button class="sort-btn" (click)="sortQdBy('score')" type="button">
+                Score
+                <span class="sort-icon" [class.sort-icon--active]="qdSortField === 'score'">
+                  {{ qdSortField === 'score' ? (qdSortDir === 'asc' ? '↑' : '↓') : '↕' }}
+                </span>
+              </button>
+            </th>
+            <th>Weight</th>
+            <th>
+              <button class="sort-btn" (click)="sortQdBy('grade')" type="button">
+                Grade
+                <span class="sort-icon" [class.sort-icon--active]="qdSortField === 'grade'">
+                  {{ qdSortField === 'grade' ? (qdSortDir === 'asc' ? '↑' : '↓') : '↕' }}
+                </span>
+              </button>
+            </th>
+            <th>Feedback</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let qd of sortedQualityDimensions">
+            <td>{{ qd.name }}</td>
+            <td>{{ qd.score != null ? (qd.score | number: '1.0-1') + '%' : '—' }}</td>
+            <td>{{ qd.weight != null ? (qd.weight | number: '1.0-2') : '—' }}</td>
+            <td>{{ qd.scoreText || '—' }}</td>
+            <td>{{ qd.feedback || qd.trainerFeedback || '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Audit trail -->
+    <section class="review-card" *ngIf="auditEntries.length">
+      <p class="review-card__label">Audit Trail</p>
+      <dl class="audit-list">
+        <ng-container *ngFor="let entry of auditEntries">
+          <dt>{{ entry.key }}</dt>
+          <dd>{{ entry.value }}</dd>
+        </ng-container>
+      </dl>
+    </section>
+
+    <!-- No review data fallback -->
+    <div class="empty-review" *ngIf="review.score == null && !review.feedback && !review.qualityDimensions.length">
+      <p class="section-tag">No data</p>
+      <h3>No review found</h3>
+      <p>This task has not been reviewed yet or the review data is unavailable.</p>
+    </div>
+
+  </div>
+</div>

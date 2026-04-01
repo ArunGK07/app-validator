@@ -8,7 +8,7 @@ import { debounceTime, finalize, firstValueFrom } from 'rxjs';
 import { DashboardApiService } from './dashboard-api.service';
 import { BatchOption, ConversationRow, HealthResponse, TaskFilters, TeamMember } from './models';
 
-type SortKey = 'taskId' | 'turnCount' | 'complexity' | 'batch' | 'schemaName' | 'businessStatus' | 'assignedUser';
+type SortKey = 'taskId' | 'turnCount' | 'complexity' | 'batch' | 'schemaName' | 'businessStatus' | 'assignedUser' | 'lastReviewScore';
 type SortDirection = 'asc' | 'desc';
 
 interface SortState {
@@ -374,6 +374,14 @@ export class DashboardPageComponent implements OnInit {
     });
   }
 
+  openReview(taskId: string): void {
+    this.persistFiltersToSession();
+
+    void this.router.navigate(['/review'], {
+      queryParams: { taskId },
+    });
+  }
+
   openTaskLookup(): void {
     const taskId = this.taskLookupControl.getRawValue().trim();
     if (!taskId) {
@@ -432,6 +440,10 @@ export class DashboardPageComponent implements OnInit {
     return Object.values(this.columnFiltersForm.getRawValue()).some((v) => v.trim());
   }
 
+  get uniqueBatches(): string[] {
+    return [...new Set(this.rows.map((r) => r.batch).filter(Boolean))].sort();
+  }
+
   get uniqueTurnCounts(): string[] {
     return [...new Set(this.rows.map((r) => r.turnCount).filter(Boolean))]
       .sort((a, b) => Number(a) - Number(b));
@@ -461,19 +473,19 @@ export class DashboardPageComponent implements OnInit {
 
   private filterRows(rows: ConversationRow[]): ConversationRow[] {
     const f = this.columnFiltersForm.getRawValue();
-    const batch = f.batch.trim().toLowerCase();
+    const batch = f.batch.trim();
     const taskId = f.taskId.trim().toLowerCase();
     const turnCount = f.turnCount.trim();
     const complexity = f.complexity.trim().toLowerCase();
-    const businessStatus = f.businessStatus.trim().toLowerCase();
-    const assignedUser = f.assignedUser.trim().toLowerCase();
+    const businessStatus = f.businessStatus.trim();
+    const assignedUser = f.assignedUser.trim();
 
     if (!batch && !taskId && !turnCount && !complexity && !businessStatus && !assignedUser) {
       return rows;
     }
 
     return rows.filter((row) =>
-      (!batch || row.batch.toLowerCase().includes(batch)) &&
+      (!batch || row.batch === batch) &&
       (!taskId || row.taskId.toLowerCase().includes(taskId)) &&
       (!turnCount || row.turnCount === turnCount) &&
       (!complexity || row.complexity.toLowerCase() === complexity) &&
@@ -546,6 +558,11 @@ export class DashboardPageComponent implements OnInit {
         return this.compareText(left.businessStatus, right.businessStatus);
       case 'assignedUser':
         return this.compareText(left.assignedUser, right.assignedUser);
+      case 'lastReviewScore': {
+        const ls = left.lastReviewScore ?? -1;
+        const rs = right.lastReviewScore ?? -1;
+        return ls - rs;
+      }
     }
   }
 

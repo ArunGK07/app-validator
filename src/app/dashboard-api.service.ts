@@ -6,6 +6,7 @@ import {
   BatchOption,
   ConversationRow,
   HealthResponse,
+  ReviewDetail,
   TaskFetchResult,
   TaskFilters,
   TaskReport,
@@ -61,6 +62,10 @@ export class DashboardApiService {
     );
   }
 
+  getConversationReview(taskId: string): Observable<ReviewDetail> {
+    return this.http.get<ReviewDetail>(`/api/conversations/${encodeURIComponent(taskId)}/review`);
+  }
+
   getTaskOutputTasks(taskId = ''): Observable<ConversationRow[]> {
     let params = new HttpParams();
 
@@ -85,10 +90,10 @@ export class DashboardApiService {
     return this.http.put<TaskReportFile>(`/api/reports/${encodeURIComponent(taskId)}/file`, { content }, { params });
   }
 
-  runTaskWorkflowAction(taskId: string, action: TaskWorkflowAction, options?: { forcePublish?: boolean }): Observable<TaskWorkflowActionResult> {
+  runTaskWorkflowAction(taskId: string, action: TaskWorkflowAction, options?: { forcePublish?: boolean; autoCommit?: boolean }): Observable<TaskWorkflowActionResult> {
     return this.http.post<TaskWorkflowActionResult>(
       `/api/tasks/${encodeURIComponent(taskId)}/actions/${encodeURIComponent(action)}`,
-      { forcePublish: Boolean(options?.forcePublish) },
+      { forcePublish: Boolean(options?.forcePublish), autoCommit: Boolean(options?.autoCommit) },
     );
   }
 

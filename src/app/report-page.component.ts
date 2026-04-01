@@ -193,6 +193,7 @@ export class ReportPageComponent implements OnInit {
   editingConversation = false;
   runningAction: TaskWorkflowAction | null = null;
   lastActionResult: TaskWorkflowActionResult | null = null;
+  autoCommit = false;
   editableContent = '';
   editingFile = false;
   savingFile = false;
@@ -203,7 +204,8 @@ export class ReportPageComponent implements OnInit {
   validationPanelWidth = this.defaultValidationPanelWidth;
   readonly workflowActions: Array<{ action: TaskWorkflowAction; label: string }> = [
     { action: 'validate', label: 'Re-Validate' },
-    { action: 'generate-outputs', label: 'Generate Outputs' },
+    { action: 'generate-artifacts', label: 'Generate Artifacts' },
+    { action: 'execute-tests', label: 'Execute Tests' },
     { action: 'publish', label: 'Publish' },
   ];
 
@@ -455,7 +457,7 @@ export class ReportPageComponent implements OnInit {
       return;
     }
     // For non-publish actions execute immediately
-    this.executeWorkflowAction(taskId, action);
+    this.executeWorkflowAction(taskId, action, { autoCommit: this.autoCommit });
   }
 
   cancelPublish(): void {
@@ -475,10 +477,10 @@ export class ReportPageComponent implements OnInit {
     this.showPublishConfirm = false;
     this.pendingWorkflowAction = null;
     this.publishConfirmRequiresOverride = false;
-    this.executeWorkflowAction(pending.taskId, pending.action, { forcePublish: Boolean(pending.forcePublish) });
+    this.executeWorkflowAction(pending.taskId, pending.action, { forcePublish: Boolean(pending.forcePublish), autoCommit: this.autoCommit });
   }
 
-  private executeWorkflowAction(taskId: string, action: TaskWorkflowAction, options?: { forcePublish?: boolean }): void {
+  private executeWorkflowAction(taskId: string, action: TaskWorkflowAction, options?: { forcePublish?: boolean; autoCommit?: boolean }): void {
     this.runningAction = action;
     this.actionMessage = `${this.getActionLabel(action)} started for task ${taskId}.`;
 

@@ -7,6 +7,7 @@ import {
   editConversation,
   fetchBatches,
   fetchConversation,
+  fetchConversationReviewDetail,
   fetchConversations,
   fetchRawConversations,
   fetchTeamMembers,
@@ -126,6 +127,15 @@ app.get('/api/conversations/:taskId', async (request, response) => {
   }
 });
 
+app.get('/api/conversations/:taskId/review', async (request, response) => {
+  try {
+    const detail = await fetchConversationReviewDetail(asPathString(request.params.taskId), readRuntimeConfig());
+    response.json(detail);
+  } catch (error) {
+    sendProxyError(response, error);
+  }
+});
+
 app.post('/api/conversations/:taskId/edit', async (request, response) => {
   try {
     const reason = typeof request.body?.reason === 'string' ? request.body.reason : 'Fixing client feedback';
@@ -195,7 +205,7 @@ app.post('/api/tasks/:taskId/actions/:action', async (request, response) => {
     const taskId = asPathString(request.params.taskId);
     const config = readRuntimeConfig();
 
-    const result = await runTaskWorkflowAction(action, taskId, config);
+    const result = await runTaskWorkflowAction(action, taskId, config, request.body ?? {});
     response.json(result);
   } catch (error) {
     sendProxyError(response, error);

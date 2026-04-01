@@ -26,6 +26,18 @@
           </a>
         </div>
         <p *ngIf="report?.folderPath" class="eyebrow">{{ report?.folderPath }}</p>
+        <div *ngIf="headerSummaryRow" class="report-header__task-meta">
+          <span class="task-meta__label">Modified by</span>
+          <span class="task-meta__user">{{ headerSummaryRow.assignedUser }}</span>
+          <ng-container *ngIf="headerSummaryRow.updatedAt">
+            <span class="task-meta__sep">·</span>
+            <span class="task-meta__date">{{ headerSummaryRow.updatedAt | date: 'MMM d, y, h:mm a' }}</span>
+          </ng-container>
+          <ng-container *ngIf="headerSummaryRow.lastReviewScore != null">
+            <span class="task-meta__sep">·</span>
+            <span class="task-meta__score">{{ headerSummaryRow.lastReviewScore | number: '1.0-1' }}%</span>
+          </ng-container>
+        </div>
       </div>
       <!-- Show only the Fetch Data button for new tasks or when no report/files exist -->
       <div *ngIf="taskId && !loadingReport && (!report || (report && !report.files.length))" class="report-header__aside">
@@ -41,6 +53,10 @@
                 {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
               </button>
             </div>
+            <label class="git-toggle">
+              <input type="checkbox" [(ngModel)]="autoCommit">
+              <span>Auto-commit</span>
+            </label>
             <a routerLink="/" class="link-button">Back to dashboard</a>
           </div>
         </div>
@@ -105,6 +121,10 @@
               </button>
             </div>
 
+            <label class="git-toggle">
+              <input type="checkbox" [(ngModel)]="autoCommit">
+              <span>Auto-commit</span>
+            </label>
             <a routerLink="/" class="link-button">Back to dashboard</a>
           </div>
         </div>
@@ -188,6 +208,17 @@
     </div>
   </div>
 
+  <!-- Action progress modal (shown while any workflow action is running) -->
+  <div *ngIf="runningAction || loadingFetch" class="modal-backdrop modal-backdrop--progress" role="dialog" aria-modal="true" aria-live="polite" aria-busy="true">
+    <div class="modal modal--progress">
+      <span class="spinner spinner--lg" aria-hidden="true"></span>
+      <div class="modal-progress__body">
+        <p class="modal-progress__label">{{ runningAction ? getActionLabel(runningAction) : 'Fetch Data' }}</p>
+        <p class="modal-progress__sub">Running for task {{ taskId }}…</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Fetch confirmation modal -->
   <div *ngIf="showFetchConfirm" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="fetchConfirmTitle">
     <div class="modal" role="document">
@@ -212,10 +243,9 @@
     </div>
   </div>
 
-  <!-- bottom-center toast for action messages (appears only when there's a message or error) -->
-  <div class="action-toast" *ngIf="actionMessage || actionError" aria-live="polite">
-    <div *ngIf="actionMessage" class="action-toast__message">{{ actionMessage }}</div>
-    <div *ngIf="actionError" class="action-toast__message action-toast__message--error">{{ actionError }}</div>
+  <!-- bottom-center toast for errors only -->
+  <div class="action-toast" *ngIf="actionError" aria-live="polite">
+    <div class="action-toast__message action-toast__message--error">{{ actionError }}</div>
   </div>
 
   <div class="report-body">

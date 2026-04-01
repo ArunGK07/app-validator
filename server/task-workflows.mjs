@@ -1,9 +1,13 @@
 import { appendFile, mkdir, readdir, unlink, writeFile } from 'node:fs/promises';
-import { join, resolve as pathResolve, relative as pathRelative } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { join, resolve as pathResolve, relative as pathRelative, dirname as pathDirname } from 'node:path';
+
+const execFileAsync = promisify(execFile);
 
 import { createLogger } from './logger.mjs';
 import { runNativeValidation } from './validation/engine.mjs';
-import { runNativeGenerateOutputs } from './generation/engine.mjs';
+import { runNativeGenerateOutputs, runNativeGenerateArtifacts, runNativeExecuteTestCases } from './generation/engine.mjs';
 import { runNativePublish } from './publish/engine.mjs';
 
 const DEFAULT_TRAINER_PROJECT_DIR = 'D:\\Turing\\Projects\\workspace\\llm-trainer-project';
@@ -21,6 +25,16 @@ const ACTION_DEFINITIONS = {
     command: ['native-generate-outputs'],
     logPrefix: 'generate-outputs',
     runNative: runNativeGenerateOutputsAction,
+  },
+  'generate-artifacts': {
+    command: ['native-generate-artifacts'],
+    logPrefix: 'generate-artifacts',
+    runNative: runNativeGenerateArtifactsAction,
+  },
+  'execute-tests': {
+    command: ['native-execute-tests'],
+    logPrefix: 'execute-tests',
+    runNative: runNativeExecuteTestCasesAction,
   },
   publish: {
     command: ['native-publish'],
@@ -119,14 +133,63 @@ async function runNativeGenerateOutputsAction(context, config, options = {}) {
   );
 }
 
+async function runNativeGenerateArtifactsAction(context, config, options = {}) {
+  const gitResult = options.autoCommit
+    ? await commitTaskToGit(context.taskId, context.taskDir, `Snapshot before generate-artifacts for task ${context.taskId}`)
+    : null;
+  const result = await runNativeGenerateArtifacts(
+    context.taskId,
+    context.taskDir,
+    context.logFilePath,
+    config,
+    options.generateDependencies ?? {},
+  );
+  return gitResult ? { ...result, gitCommit: gitResult } : result;
+}
+
+async function runNativeExecuteTestCasesAction(context, config, options = {}) {
+  const gitResult = options.autoCommit
+    ? await commitTaskToGit(context.taskId, context.taskDir, `Snapshot before execute-tests for task ${context.taskId}`)
+    : null;
+  const result = await runNativeExecuteTestCases(
+    context.taskId,
+    context.taskDir,
+    context.logFilePath,
+    config,
+    options.generateDependencies ?? {},
+  );
+  return gitResult ? { ...result, gitCommit: gitResult } : result;
+}
+
 async function runNativePublishAction(context, config, options = {}) {
-  return runNativePublish(
+  const result = await runNativePublish(
     context.taskId,
     context.taskDir,
     context.logFilePath,
     config,
     options.publishDependencies ?? {},
   );
+  if (options.autoCommit && result.success) {
+    const gitResult = await commitTaskToGit(context.taskId, context.taskDir, `Published task ${context.taskId}`);
+    return { ...result, gitCommit: gitResult };
+  }
+  return result;
+}
+
+async function commitTaskToGit(taskId, taskDir, message) {
+  const repoRoot = pathDirname(taskDir);
+  try {
+    await execFileAsync('git', ['add', taskDir], { cwd: repoRoot });
+    await execFileAsync('git', ['commit', '-m', message], { cwd: repoRoot });
+    logger.info(`[git] Committed: ${message}`);
+    return { committed: true, message };
+  } catch (error) {
+    const reason = error?.stderr?.trim() || error?.message || String(error);
+    // 'nothing to commit' is exit code 1 — not a real error
+    const nothingToCommit = reason.includes('nothing to commit') || reason.includes('nothing added to commit');
+    logger.warn(`[git] Commit skipped for task ${taskId}: ${reason}`);
+    return { committed: false, reason: nothingToCommit ? 'Nothing to commit' : reason };
+  }
 }
 
 async function clearTaskLogFiles(context) {

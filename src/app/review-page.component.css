@@ -1,0 +1,304 @@
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.review-shell {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  padding: 14px 18px 18px;
+  overflow-y: auto;
+}
+
+/* Header */
+.review-header {
+  display: grid;
+  gap: 6px;
+}
+
+.review-header__nav {
+  display: flex;
+  align-items: center;
+}
+
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.review-header__title {
+  min-width: 0;
+}
+
+.section-tag {
+  margin: 0 0 4px;
+  color: var(--accent);
+  letter-spacing: 0.14em;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.review-header__title h2 {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.3vw, 1.85rem);
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.task-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75em;
+  color: var(--accent);
+  text-decoration: none;
+  opacity: 0.85;
+}
+
+.task-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* Loading / error */
+.loading-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  padding: 24px 0;
+}
+
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.notice {
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.notice--error {
+  background: rgba(156, 47, 47, 0.08);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+/* Content */
+.review-content {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.review-card {
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 16px 20px;
+}
+
+.review-card__label {
+  margin: 0 0 10px;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+/* Score */
+.review-card--score {
+  display: grid;
+  gap: 12px;
+}
+
+.score-display {
+  display: inline-flex;
+  align-items: center;
+}
+
+.score-value {
+  font-size: 2.8rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+}
+
+.score-value--empty {
+  font-size: 1.5rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.score--good .score-value { color: var(--accent); }
+.score--warn .score-value { color: var(--warn); }
+.score--bad .score-value { color: var(--error); }
+
+.review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+}
+
+.meta-item {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.meta-item strong {
+  color: var(--text);
+  margin-right: 3px;
+}
+
+.text-warn {
+  color: var(--warn);
+}
+
+/* Feedback */
+.review-feedback {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+/* Quality dimensions table */
+.qd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.qd-table th,
+.qd-table td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.qd-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+
+.sort-btn:hover {
+  color: var(--text);
+}
+
+.sort-icon {
+  font-size: 0.75em;
+  opacity: 0.4;
+}
+
+.sort-icon--active {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.qd-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Audit trail */
+.audit-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  font-size: 0.875rem;
+}
+
+.audit-list dt {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.audit-list dd {
+  margin: 0;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* Empty state */
+.empty-review {
+  padding: 24px 0;
+}
+
+.empty-review h3 {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+}
+
+.empty-review p {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Shared btn styles already in global styles; define extra here */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 1.4;
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.9);
+}

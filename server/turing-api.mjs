@@ -31,6 +31,12 @@ const SINGLE_CONVERSATION_JOINS = [
   'labels.label',
   'variations||id',
   'project.projectFormStages',
+  'latestManualReview',
+  'latestManualReview.review||id,score,feedback,status,audit,conversationId,reviewerId,reviewType,followupRequired',
+  'latestAutoReview',
+  'latestAutoReview.review||id,score,conversationId,status,reviewType,followupRequired',
+  'latestLabelingWorkflow',
+  'latestLabelingWorkflow.workflow||status,createdAt,currentWorkflowStatus',
 ];
 
 const statusQueryPresets = {
@@ -301,10 +307,8 @@ export async function fetchConversations(filters, config) {
   const requests = buildConversationsRequests(filters, config);
   const responses = await Promise.all(requests.map((request) => callJsonApi(request.url, config)));
 
-  const normalizedRows = responses.flatMap((response, index) =>
-    coerceArray(response).map((record) =>
-      normalizeConversation(record, requests[index].status === ALL_STATUS ? undefined : requests[index].label),
-    ),
+  const normalizedRows = responses.flatMap((response) =>
+    coerceArray(response).map((record) => normalizeConversation(record)),
   );
 
   const rows = await enrichConversationRowsWithCollabLinks(dedupeConversationRows(normalizedRows), config);
@@ -434,6 +438,8 @@ export async function listTaskOutputFiles(taskId, config) {
   }
 }
 
+const NON_TASK_FOLDER_NAMES = new Set(['schema', 'tmp', 'tmp_labeling_assets']);
+
 export async function listTaskOutputTasks(config, filters = {}) {
   const requestedTaskId = asString(filters.taskId).trim();
 
@@ -441,16 +447,29 @@ export async function listTaskOutputTasks(config, filters = {}) {
     const rootPath = pathResolve(config.taskOutputDir);
     const entries = await readdir(rootPath, { withFileTypes: true });
     const taskDirectories = entries.filter(
-      (entry) => entry.isDirectory() && isExactTaskId(entry.name) && (!requestedTaskId || entry.name === requestedTaskId),
+      (entry) =>
+        entry.isDirectory() &&
+        isExactTaskId(entry.name) &&
+        !NON_TASK_FOLDER_NAMES.has(entry.name.toLowerCase()) &&
+        (!requestedTaskId || entry.name === requestedTaskId),
     );
     const rows = await Promise.all(
-      taskDirectories.map((entry) => buildTaskOutputTaskRow(entry.name, join(rootPath, entry.name))),
+      taskDirectories.map((entry) => buildTaskOutputTaskRow(entry.name, join(rootPath, entry.name), config)),
     );
 
-    return rows.sort((left, right) => right.taskId.localeCompare(left.taskId, undefined, { numeric: true, sensitivity: 'base' }));
+    return rows
+      .filter((row) => row !== null)
+      .sort((left, right) => right.taskId.localeCompare(left.taskId, undefined, { numeric: true, sensitivity: 'base' }));
   } catch (error) {
     throw asTaskOutputError(error, 'Task output directory was not found in the configured workspace.');
   }
+}
+
+export async function fetchConversationReviewDetail(taskId, config) {
+  const response = await callJsonApi(buildConversationReviewsUrl(taskId, config), config);
+  const data = coerceArray(coerceRecord(response).data ?? response);
+  const review = data[0] ?? null;
+  return normalizeReviewFromReviewsApi(taskId, review);
 }
 
 export async function readTaskOutputFile(taskId, name, config) {
@@ -638,6 +657,24 @@ export function buildReviewsUrl(taskId, config) {
   return url.toString();
 }
 
+export function buildConversationReviewsUrl(taskId, config) {
+  const url = new URL('/api/reviews', config.labelingBaseUrl);
+  const params = url.searchParams;
+  params.set('limit', '10');
+  params.set('page', '1');
+  params.set('filter[0]', `conversationId||$eq||${taskId}`);
+  params.set('filter[1]', 'conversation.batch.status||$ne||archived');
+  params.set('join[0]', 'reviewer||id,name,turingEmail,profilePicture,isBlocked');
+  params.set('join[1]', 'conversationVersion||id,colabRevisionId,formStage');
+  params.set('join[2]', 'conversation');
+  params.set('join[3]', 'conversation.project||id,name,status');
+  params.set('join[4]', 'conversation.batch||id,name,status');
+  params.set('join[5]', 'qualityDimensionValues||id,feedback,score,weight,scoreText,negativeReviewThreshold,trainerFeedback');
+  params.set('join[6]', 'qualityDimensionValues.qualityDimension||id,name,description,reviewDisplay');
+  params.set('join[7]', 'qualityDimensionValues.projectQualityDimension||id,name,reviewDisplay,sortOrder,negativeReviewThreshold');
+  return url.toString();
+}
+
 export function buildSchemaWarmupConversationsUrl(config, page = 1) {
   const preset = statusQueryPresets[ALL_STATUS];
   const url = new URL('/api/conversations', config.labelingBaseUrl);
@@ -669,13 +706,14 @@ export function normalizeConversation(record, businessStatus) {
     asString(record.latestLabelingWorkflow?.workflow?.collaborators?.[0]?.collaborator?.name) ||
     'Unassigned';
   const promptId = findPromptIdentifier(metadata) ?? findPromptIdentifier(record.seed?.turingMetadata) ?? undefined;
+  const reviewFields = extractReviewFields(record);
 
   return {
     taskId,
     metadata,
     metadataPreview: summarizeMetadata(metadata),
     status: inferCurrentStatus(record),
-    businessStatus: businessStatus ?? inferBusinessStatus(record),
+    businessStatus: inferBusinessStatus(record),
     turnCount: inferTurnCount(metadata),
     complexity: inferComplexity(metadata),
     batchId,
@@ -685,6 +723,128 @@ export function normalizeConversation(record, businessStatus) {
     promptId,
     collabLink: resolveCollabLink(record, taskId),
     source: 'conversation',
+    updatedAt: asString(record.updatedAt) || null,
+    ...reviewFields,
+  };
+}
+
+export function extractReviewFields(record) {
+  const manualReview = record.latestManualReview?.review ?? null;
+  const autoReview = record.latestAutoReview?.review ?? null;
+  const review = manualReview ?? autoReview;
+
+  if (!review) {
+    return {
+      lastReviewScore: null,
+      lastReviewFeedback: null,
+      lastReviewerName: null,
+      lastReviewStatus: null,
+      lastReviewType: null,
+      lastReviewFollowup: null,
+    };
+  }
+
+  return {
+    lastReviewScore: typeof review.score === 'number' ? review.score : null,
+    lastReviewFeedback: asString(review.feedback) || null,
+    lastReviewerName: asString(review.reviewer?.name) || null,
+    lastReviewStatus: asString(review.status) || null,
+    lastReviewType: asString(review.reviewType) || null,
+    lastReviewFollowup: typeof review.followupRequired === 'boolean' ? review.followupRequired : null,
+  };
+}
+
+export function normalizeReviewDetail(taskId, record) {
+  const manualReview = record.latestManualReview?.review ?? null;
+  const autoReview = record.latestAutoReview?.review ?? null;
+  const review = manualReview ?? autoReview;
+
+  if (!review) {
+    return {
+      taskId,
+      reviewId: null,
+      score: null,
+      feedback: null,
+      status: null,
+      reviewType: null,
+      followupRequired: null,
+      reviewerName: null,
+      reviewerEmail: null,
+      audit: null,
+      qualityDimensions: [],
+    };
+  }
+
+  const qualityDimensions = coerceArray(review.qualityDimensionValues).map((qd) => ({
+    name: asString(qd.qualityDimension?.name) || asString(qd.qualityDimensionId) || 'Unknown',
+    score: typeof qd.score === 'number' ? qd.score : null,
+    weight: typeof qd.weight === 'number' ? qd.weight : null,
+    scoreText: asString(qd.scoreText) || null,
+  }));
+
+  return {
+    taskId,
+    reviewId: asString(review.id) || null,
+    score: typeof review.score === 'number' ? review.score : null,
+    feedback: asString(review.feedback) || null,
+    status: asString(review.status) || null,
+    reviewType: asString(review.reviewType) || null,
+    followupRequired: typeof review.followupRequired === 'boolean' ? review.followupRequired : null,
+    reviewerName: asString(review.reviewer?.name) || null,
+    reviewerEmail: asString(review.reviewer?.turingEmail) || null,
+    audit: isRecord(review.audit) ? review.audit : null,
+    qualityDimensions,
+  };
+}
+
+export function normalizeReviewFromReviewsApi(taskId, review) {
+  if (!review) {
+    return {
+      taskId,
+      reviewId: null,
+      score: null,
+      feedback: null,
+      status: null,
+      reviewType: null,
+      followupRequired: null,
+      reviewerName: null,
+      reviewerEmail: null,
+      audit: null,
+      qualityDimensions: [],
+    };
+  }
+
+  const rawQds = coerceArray(review.qualityDimensionValues);
+  const sortedQds = rawQds.slice().sort((a, b) => {
+    const aOrder = typeof a.projectQualityDimension?.sortOrder === 'number' ? a.projectQualityDimension.sortOrder : 999;
+    const bOrder = typeof b.projectQualityDimension?.sortOrder === 'number' ? b.projectQualityDimension.sortOrder : 999;
+    return aOrder - bOrder;
+  });
+
+  const qualityDimensions = sortedQds.map((qd) => ({
+    name:
+      asString(qd.projectQualityDimension?.name) ||
+      asString(qd.qualityDimension?.name) ||
+      'Unknown',
+    score: typeof qd.score === 'number' ? qd.score : null,
+    weight: typeof qd.weight === 'number' ? qd.weight : null,
+    scoreText: asString(qd.scoreText) || null,
+    feedback: asString(qd.feedback) || null,
+    trainerFeedback: asString(qd.trainerFeedback) || null,
+  }));
+
+  return {
+    taskId,
+    reviewId: asString(review.id) || null,
+    score: typeof review.score === 'number' ? review.score : null,
+    feedback: asString(review.feedback) || null,
+    status: asString(review.status) || null,
+    reviewType: asString(review.reviewType) || null,
+    followupRequired: typeof review.followupRequired === 'boolean' ? review.followupRequired : null,
+    reviewerName: asString(review.reviewer?.name) || null,
+    reviewerEmail: asString(review.reviewer?.turingEmail) || null,
+    audit: isRecord(review.audit) ? review.audit : null,
+    qualityDimensions,
   };
 }
 
@@ -822,10 +982,6 @@ export function inferBusinessStatus(record) {
   }
 
   if (rawStatus === 'completed') {
-    if (followupRequired === false) {
-      return 'Reviewed Once';
-    }
-
     return 'Completed';
   }
 
@@ -953,30 +1109,43 @@ async function collectTaskOutputFiles(taskId, folderPath, relativePrefix, config
   return files;
 }
 
-async function buildTaskOutputTaskRow(taskId, folderPath) {
-  const metadata = await readTaskOutputMetadata(taskId, folderPath);
-  const schema = resolveTaskSchemaInfo(metadata ?? {});
-  const metadataRecord = metadata ?? {};
+async function buildTaskOutputTaskRow(taskId, folderPath, config) {
+  try {
+    const response = await callJsonApi(buildConversationDetailUrl(taskId, config), config);
+    const record = coerceRecord(response);
 
-  const validationStatus = await readTaskOutputValidationStatus(taskId, folderPath);
-  const assignedUser = inferAssignedUserFromMetadata(metadataRecord);
+    if (!Object.keys(record).length) {
+      return null;
+    }
 
-  return {
-    taskId,
-    metadata,
-    metadataPreview: summarizeMetadata(metadata),
-    status: 'Task Output',
-    businessStatus: validationStatus,
-    turnCount: inferTurnCount(metadata),
-    complexity: inferComplexity(metadata),
-    batchId: '',
-    batch: 'Task Output',
-    schemaName: schema.schemaName || 'Unknown',
-    assignedUser,
-    promptId: findPromptIdentifier(metadataRecord) ?? undefined,
-    collabLink: resolveCollabLink(metadataRecord, taskId),
-    source: 'task-output',
-  };
+    const liveRow = normalizeConversation(record);
+    return {
+      ...liveRow,
+      source: 'task-output',
+    };
+  } catch {
+    // Fall back to local metadata when API is unreachable (no cookie, network error, etc.)
+    const metadata = await readTaskOutputMetadata(taskId, folderPath);
+    const schema = resolveTaskSchemaInfo(metadata);
+    return {
+      taskId,
+      metadata,
+      metadataPreview: summarizeMetadata(metadata),
+      status: 'Available Locally',
+      businessStatus: 'Available Locally',
+      turnCount: inferTurnCount(metadata),
+      complexity: inferComplexity(metadata),
+      batchId: '',
+      batch: '',
+      schemaName: schema.schemaName || 'Unknown',
+      assignedUser: inferAssignedUserFromMetadata(metadata) || 'Unassigned',
+      promptId: findPromptIdentifier(metadata) ?? undefined,
+      collabLink: resolveCollabLink(isRecord(metadata) ? metadata : {}, taskId),
+      source: 'task-output',
+      updatedAt: null,
+      lastReviewScore: null,
+    };
+  }
 }
 
 async function readTaskOutputValidationStatus(taskId, folderPath) {

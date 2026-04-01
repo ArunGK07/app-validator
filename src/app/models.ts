@@ -26,6 +26,36 @@ export interface ConversationRow {
   promptId?: string;
   collabLink?: string;
   source?: 'conversation' | 'task-output';
+  lastReviewScore?: number | null;
+  lastReviewFeedback?: string | null;
+  lastReviewerName?: string | null;
+  lastReviewStatus?: string | null;
+  lastReviewType?: string | null;
+  lastReviewFollowup?: boolean | null;
+  updatedAt?: string | null;
+}
+
+export interface ReviewDetail {
+  taskId: string;
+  reviewId: string | null;
+  score: number | null;
+  feedback: string | null;
+  status: string | null;
+  reviewType: string | null;
+  followupRequired: boolean | null;
+  reviewerName: string | null;
+  reviewerEmail: string | null;
+  audit: unknown;
+  qualityDimensions: ReviewQualityDimension[];
+}
+
+export interface ReviewQualityDimension {
+  name: string;
+  score: number | null;
+  weight: number | null;
+  scoreText: string | null;
+  feedback: string | null;
+  trainerFeedback: string | null;
 }
 
 export interface BatchOption {
@@ -55,7 +85,7 @@ export interface TaskReportFile {
   content: string;
 }
 
-export type TaskWorkflowAction = 'validate' | 'generate-outputs' | 'publish';
+export type TaskWorkflowAction = 'validate' | 'generate-outputs' | 'generate-artifacts' | 'execute-tests' | 'publish';
 
 export interface TaskFetchResult {
   taskId: string;

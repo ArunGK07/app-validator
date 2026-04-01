@@ -166,7 +166,7 @@
           <th>Metadata</th>
           <th [attr.aria-sort]="getAriaSort('businessStatus')">
             <button class="sort-button" type="button" (click)="sortBy('businessStatus')">
-              <span>Business Status</span>
+              <span>Status</span>
               <span
                 class="sort-indicator"
                 [class.sort-indicator--active]="isSortActive('businessStatus')"
@@ -186,10 +186,26 @@
               ></span>
             </button>
           </th>
+          <th [attr.aria-sort]="getAriaSort('lastReviewScore')">
+            <button class="sort-button" type="button" (click)="sortBy('lastReviewScore')">
+              <span>Last Review</span>
+              <span
+                class="sort-indicator"
+                [class.sort-indicator--active]="isSortActive('lastReviewScore')"
+                [class.sort-indicator--desc]="isSortDescending('lastReviewScore')"
+                aria-hidden="true"
+              ></span>
+            </button>
+          </th>
           <th>Actions</th>
         </tr>
         <tr class="filter-row">
-          <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.batch" type="search" placeholder="Filter…" aria-label="Filter batch" /></th>
+          <th>
+            <select class="col-filter-input" [formControl]="columnFiltersForm.controls.batch" aria-label="Filter batch">
+              <option value="">All</option>
+              <option *ngFor="let v of uniqueBatches" [value]="v">{{ v }}</option>
+            </select>
+          </th>
           <th><input class="col-filter-input" [formControl]="columnFiltersForm.controls.taskId" type="search" placeholder="Filter…" aria-label="Filter task ID" /></th>
           <th>
             <select class="col-filter-input" [formControl]="columnFiltersForm.controls.turnCount" aria-label="Filter turn count">
@@ -205,7 +221,7 @@
           </th>
           <th></th>
           <th>
-            <select class="col-filter-input" [formControl]="columnFiltersForm.controls.businessStatus" aria-label="Filter business status">
+            <select class="col-filter-input" [formControl]="columnFiltersForm.controls.businessStatus" aria-label="Filter status">
               <option value="">All</option>
               <option *ngFor="let v of uniqueBusinessStatuses" [value]="v">{{ v }}</option>
             </select>
@@ -216,6 +232,7 @@
               <option *ngFor="let v of uniqueAssignedUsers" [value]="v">{{ v }}</option>
             </select>
           </th>
+          <th></th>
           <th>
             <button *ngIf="hasColumnFilters" class="btn btn-secondary btn-row col-filter-clear" type="button" (click)="clearColumnFilters()">Clear all</button>
           </th>
@@ -264,6 +281,20 @@
             <td>{{ row.businessStatus }}</td>
             <td>{{ row.assignedUser }}</td>
             <td>
+              <button
+                *ngIf="row.lastReviewScore != null; else noReview"
+                class="btn btn-review-score"
+                type="button"
+                (click)="openReview(row.taskId)"
+                [title]="'View review details for task ' + row.taskId"
+              >
+                {{ row.lastReviewScore | number: '1.0-1' }}%
+              </button>
+              <ng-template #noReview>
+                <span class="review-score-empty">—</span>
+              </ng-template>
+            </td>
+            <td>
               <div class="row-actions">
                 <!-- Validate and Fetch Data buttons hidden for now -->
                 <button class="btn btn-secondary btn-icon" type="button" (click)="openReport(row.taskId)" title="Open report">
@@ -273,7 +304,7 @@
             </td>
           </tr>
           <tr *ngIf="isMetadataOpen(row.taskId)" class="metadata-row">
-            <td colspan="8">
+            <td [attr.colspan]="9">
               <div class="metadata-card">
                 <p class="metadata-card__title">Metadata preview</p>
                 <pre>{{ row.metadataPreview }}</pre>
