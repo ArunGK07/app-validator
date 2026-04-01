@@ -2,6 +2,10 @@
   <div class="report-header">
     <div class="report-header__main">
       <div class="report-header__title">
+        <a routerLink="/" class="report-header__back">
+          <svg viewBox="0 0 20 20" aria-hidden="true" width="15" height="15"><path d="M13.41 6L12 4.59 6.59 10 12 15.41 13.41 14l-4-4z" fill="currentColor"/></svg>
+          Back to dashboard
+        </a>
         <div class="report-header__title-row">
           <h2>
             <a class="task-link report-header__task-link" [href]="getReportTaskHref()" target="_blank" rel="noopener noreferrer">
@@ -53,12 +57,12 @@
                 {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
               </button>
             </div>
-            <label class="git-toggle">
-              <input type="checkbox" [(ngModel)]="autoCommit">
-              <span>Auto-commit</span>
-            </label>
-            <a routerLink="/" class="link-button">Back to dashboard</a>
           </div>
+          <label class="git-toggle" [class.git-toggle--on]="autoCommit">
+            <input type="checkbox" [(ngModel)]="autoCommit" class="git-toggle__input">
+            <span class="git-toggle__track"><span class="git-toggle__thumb"></span></span>
+            <span class="git-toggle__label">Auto-commit</span>
+          </label>
         </div>
       </div>
 
@@ -120,13 +124,12 @@
                 {{ editingConversation ? 'Opening Edit...' : 'Edit Task' }}
               </button>
             </div>
-
-            <label class="git-toggle">
-              <input type="checkbox" [(ngModel)]="autoCommit">
-              <span>Auto-commit</span>
-            </label>
-            <a routerLink="/" class="link-button">Back to dashboard</a>
           </div>
+          <label class="git-toggle" [class.git-toggle--on]="autoCommit">
+            <input type="checkbox" [(ngModel)]="autoCommit" class="git-toggle__input">
+            <span class="git-toggle__track"><span class="git-toggle__thumb"></span></span>
+            <span class="git-toggle__label">Auto-commit</span>
+          </label>
         </div>
       </div>
     </div>

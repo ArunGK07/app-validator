@@ -83,6 +83,26 @@
   color: var(--text);
 }
 
+.report-header__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+  padding: 5px 10px 5px 7px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
+  text-decoration: none;
+  line-height: 1;
+  cursor: pointer;
+}
+.report-header__back:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
 .report-header__title-row {
   display: flex;
   align-items: center;
@@ -436,12 +456,49 @@ h2 {
 .git-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 0.82rem;
   color: var(--muted);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
+  justify-self: end;
+}
+.git-toggle__input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.git-toggle__track {
+  display: inline-flex;
+  align-items: center;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--line);
+  transition: background 0.18s;
+  flex-shrink: 0;
+  padding: 2px;
+}
+.git-toggle__thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  transition: transform 0.18s;
+  transform: translateX(0);
+}
+.git-toggle--on .git-toggle__track {
+  background: var(--accent);
+}
+.git-toggle--on .git-toggle__thumb {
+  transform: translateX(14px);
+}
+.git-toggle__label {
+  color: var(--muted);
 }
 
 .turn-chip {
