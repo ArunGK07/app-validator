@@ -139,6 +139,53 @@ test('runPlsqlProgramValidator fails when generated analyzer artifacts are stale
   }
 });
 
+test('runPlsqlProgramValidator fails when columns artifact contains no generated columns sentinel', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-plsql-program-empty-columns-'));
+  const taskDir = join(root, '24773');
+  const metadata = {
+    id: 24773,
+    num_turns: 1,
+    required_anonymous_block: false,
+    required_procs_funcs_pkgs: false,
+    target_reasoning_types: [],
+  };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(join(taskDir, '24773_turn1_1user.txt'), 'Requirements:\nAnonymous Block:\n', 'utf8');
+    const codeText = 'DECLARE\nBEGIN\n  NULL;\nEXCEPTION\n  WHEN OTHERS THEN\n    NULL;\nEND;\n/';
+    await writeFile(join(taskDir, '24773_turn1_4referenceAnswer.sql'), codeText, 'utf8');
+    await writeFile(join(taskDir, '24773_turn1_3columns.txt'), '[No columnss found]\n', 'utf8');
+    await writeFile(join(taskDir, '24773_turn1_5testCases.sql'), 'execution_result:\n1\n', 'utf8');
+    await writeFile(join(taskDir, '24773_turn1_6reasoningTypes.txt'), `${formatCommaLines(analyzeReasoningTypes(codeText))}\n`, 'utf8');
+    await writeFile(join(taskDir, '24773_turn1_7plSqlConstructs.txt'), `${formatCommaLines(analyzeConstructsHighSignal(codeText))}\n`, 'utf8');
+
+    const results = await runPlsqlProgramValidator('24773', taskDir, metadata);
+    const row = results.find((entry) => entry.item === 'Columns Artifact');
+    assert.ok(row, 'missing validation row for Columns Artifact');
+    assert.equal(row.status, 'FAIL');
+    assert.equal(row.ruleId, 'empty_columns_artifact');
+    assert.equal(row.sourceFile, '24773_turn1_3columns.txt');
+    assert.match(row.present ?? '', /\[No columnss found\]/);
+
+    const checklist = buildValidationChecklist([
+      {
+        validator: VALIDATOR_NAMES.plsqlProgram,
+        results,
+        summary: summarizeResults(results),
+      },
+    ]);
+
+    const checklistRow = checklist.find(
+      (entry) => entry.validator === VALIDATOR_NAMES.plsqlProgram && entry.item === 'Columns Artifact',
+    );
+    assert.ok(checklistRow, 'missing checklist row for Columns Artifact');
+    assert.equal(checklistRow.status, 'FAIL');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('runPlsqlProgramValidator accepts external scorer construct synonyms in artifacts', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-plsql-program-synonyms-'));
   const taskDir = join(root, '25005');

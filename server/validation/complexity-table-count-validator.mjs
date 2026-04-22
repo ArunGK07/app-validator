@@ -24,7 +24,7 @@ function validateCountForComplexity(complexity, count) {
     return { valid: count >= 3 && count <= 4, expectedText: '3-4 tables' };
   }
   if (complexity === 'advanced') {
-    return { valid: count >= 4 && count <= 5, expectedText: '4-5 tables' };
+    return { valid: count >= 4, expectedText: 'at least 4 tables' };
   }
   return { valid: false, expectedText: 'supported values are simple, intermediate, advanced' };
 }

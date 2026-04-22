@@ -185,8 +185,8 @@ test('runArtifactAlignmentValidator enforces stable label fragments from placeho
     const results = await runArtifactAlignmentValidator('31003', taskDir, metadata);
 
     assert.ok(results.some((entry) => entry.ruleId === 'missing_output_literal_in_testcase' && entry.status === 'FAIL'));
-    assert.ok(results.some((entry) => entry.item === 'Output Literal Code Coverage: Country Code:' && entry.status === 'FAIL'));
-    assert.ok(results.some((entry) => entry.item === 'Output Literal Test Coverage: Country Code:' && entry.status === 'FAIL'));
+    assert.ok(results.some((entry) => entry.item === 'Output Literal Code Coverage: Country Code: ' && entry.status === 'FAIL'));
+    assert.ok(results.some((entry) => entry.item === 'Output Literal Test Coverage: Country Code: ' && entry.status === 'FAIL'));
     assert.ok(results.some((entry) => entry.ruleId === 'missing_exception_message_in_code' && entry.status === 'FAIL'));
     assert.ok(results.some((entry) => entry.ruleId === 'testcase_coverage_not_required' && entry.status === 'PASS'));
   } finally {
@@ -262,6 +262,201 @@ test('runArtifactAlignmentValidator recognizes procedures implemented inside a p
     assert.ok(results.some((entry) => entry.item === 'Required Program Implementation: PACKAGE pkg_demo' && entry.status === 'PASS'));
     assert.ok(results.some((entry) => entry.item === 'Required Program Implementation: PROCEDURE sp_emit_message' && entry.status === 'PASS'));
     assert.ok(!results.some((entry) => entry.ruleId === 'missing_program_implementation' && entry.status === 'FAIL'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('runArtifactAlignmentValidator fails when exception message is only a substring of a dynamic handler output', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-artifact-alignment-'));
+  const taskDir = join(root, '31005');
+  const metadata = { id: 31005, num_turns: 1 };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '31005_turn1_1user.txt'),
+      [
+        'Requirements:',
+        'Procedure Name:',
+        'sp_emit_message',
+        '',
+        'Parameters:',
+        '\tp_input - IN - NUMBER -- sample',
+        '',
+        'Output:',
+        '\tMessage: ABCD',
+        '',
+        'Exception Handling:',
+        '\tOther Exception : Unexpected error occurred',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '31005_turn1_4referenceAnswer.sql'),
+      [
+        'CREATE OR REPLACE PROCEDURE sp_emit_message(p_input IN NUMBER) IS',
+        'BEGIN',
+        "  DBMS_OUTPUT.PUT_LINE('ABCD');",
+        'EXCEPTION',
+        '  WHEN OTHERS THEN',
+        "    DBMS_OUTPUT.PUT_LINE('Unexpected error occurred while auditing class ID ' || p_input || '.');",
+        'END;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '31005_turn1_5testCases.sql'),
+      [
+        'Test Case 1:',
+        'execution_instructions:',
+        'BEGIN sp_emit_message(1); END;',
+        'execution_result:',
+        'ABCD',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const results = await runArtifactAlignmentValidator('31005', taskDir, metadata);
+
+    assert.ok(results.some((entry) => entry.ruleId === 'missing_exception_message_in_code' && entry.status === 'FAIL'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('runArtifactAlignmentValidator derives placeholder-based exception output fragments instead of narrative prompt text', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-artifact-alignment-'));
+  const taskDir = join(root, '31006');
+  const metadata = { id: 31006, num_turns: 1 };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '31006_turn1_1user.txt'),
+      [
+        'Requirements:',
+        'Procedure Name:',
+        'sp_emit_message',
+        '',
+        'Parameters:',
+        '\tp_input - IN - NUMBER -- sample',
+        '',
+        'Output:',
+        '\tMessage: ABCD',
+        '',
+        'Exception Handling:',
+        '\tProduct Not Found : If a purchase references a missing product then print SKIPPED : Purchase ID <purchase_id> - Product not found.',
+        '\tOther Exception : Unexpected error occurred.',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '31006_turn1_4referenceAnswer.sql'),
+      [
+        'CREATE OR REPLACE PROCEDURE sp_emit_message(p_input IN NUMBER) IS',
+        'BEGIN',
+        "  DBMS_OUTPUT.PUT_LINE('ABCD');",
+        'EXCEPTION',
+        '  WHEN NO_DATA_FOUND THEN',
+        "    DBMS_OUTPUT.PUT_LINE('SKIPPED: Purchase ID ' || p_input || ' - Product not found.');",
+        '  WHEN OTHERS THEN',
+        "    DBMS_OUTPUT.PUT_LINE('Unexpected error occurred.');",
+        'END;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '31006_turn1_5testCases.sql'),
+      [
+        'Test Case 1:',
+        'execution_instructions:',
+        'BEGIN sp_emit_message(999001); END;',
+        'execution_result:',
+        'ABCD',
+        'SKIPPED: Purchase ID 999001 - Product not found.',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const results = await runArtifactAlignmentValidator('31006', taskDir, metadata);
+
+    assert.ok(results.some((entry) => entry.item === 'Exception Message Code Coverage: SKIPPED: Purchase ID' && entry.status === 'PASS'));
+    assert.ok(results.some((entry) => entry.item === 'Exception Message Code Coverage: - Product not found.' && entry.status === 'PASS'));
+    assert.ok(results.some((entry) => entry.item === 'Exception Message Code Coverage: Unexpected error occurred.' && entry.status === 'PASS'));
+    assert.ok(results.some((entry) => entry.item === 'Exception Message Test Coverage: Unexpected error occurred.' && entry.ruleId === 'testcase_coverage_not_required' && entry.status === 'PASS'));
+    assert.ok(!results.some((entry) => entry.item.includes('If a purchase references a missing product then print') && entry.status === 'FAIL'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('runArtifactAlignmentValidator ignores instructional output prose and keeps only concrete placeholder fragments', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-artifact-alignment-'));
+  const taskDir = join(root, '31007');
+  const metadata = { id: 31007, num_turns: 1 };
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(
+      join(taskDir, '31007_turn1_1user.txt'),
+      [
+        'Requirements:',
+        'Trigger Name:',
+        'trg_demo',
+        '',
+        'Parameters:',
+        '\tNo parameters required.',
+        '',
+        'Output:',
+        '\tPrint audit report rows for logged warehouse activity.',
+        '\tFormat reorder trigger log messages as REORDER ALERT: Product <product_id> | <status> and do not include exception backtraces or call-stack text in normal logging.',
+        '\tSort audit report rows by log_time in descending order. No ranking rules are required.',
+        '',
+        'Exception Handling:',
+        '\tOther Exception : Unexpected error occurred.',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '31007_turn1_4referenceAnswer.sql'),
+      [
+        'CREATE OR REPLACE TRIGGER trg_demo',
+        'AFTER INSERT ON demo_table',
+        'FOR EACH ROW',
+        'BEGIN',
+        "  DBMS_OUTPUT.PUT_LINE('REORDER ALERT: Product ' || :NEW.product_id || ' | WARNING');",
+        'EXCEPTION',
+        '  WHEN OTHERS THEN',
+        "    DBMS_OUTPUT.PUT_LINE('Unexpected error occurred.');",
+        'END;',
+        '/',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(taskDir, '31007_turn1_5testCases.sql'),
+      [
+        'Test Case 1:',
+        'execution_instructions:',
+        'UPDATE demo_table SET qty = qty WHERE id = 1;',
+        'execution_result:',
+        'REORDER ALERT: Product 1 | WARNING',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const results = await runArtifactAlignmentValidator('31007', taskDir, metadata);
+
+    assert.ok(results.some((entry) => entry.item === 'Output Literal Code Coverage: REORDER ALERT: Product' && entry.status === 'PASS'));
+    assert.ok(!results.some((entry) => entry.item.includes('Print audit report rows for logged warehouse activity') && entry.status === 'FAIL'));
+    assert.ok(!results.some((entry) => entry.item.includes('Sort audit report rows by log_time in descending order') && entry.status === 'FAIL'));
+    assert.ok(!results.some((entry) => entry.item.includes('and do not include exception backtraces or call-stack text in normal logging') && entry.status === 'FAIL'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

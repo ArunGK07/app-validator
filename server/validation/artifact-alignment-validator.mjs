@@ -142,6 +142,29 @@ export async function runArtifactAlignmentValidator(taskId, taskDir, metadata) {
         testcaseExpectation: 'explicit exception message from the prompt must appear in at least one testcase execution result',
       }));
     }
+
+    // MANDATORY: Validate ALL DBMS_OUTPUT.PUT_LINE statements in BEGIN/EXCEPTION blocks are covered by testcases
+    const dbmsOutputStatements = extractAllDbmsOutputStatements(codeArtifact.text);
+    for (const stmt of dbmsOutputStatements) {
+      const item = `DBMS_OUTPUT Coverage: ${stmt.text}`;
+      const foundInTestcase = testcaseBlocks.some((block) => {
+        const normalizedResult = String(block.result ?? '').toUpperCase();
+        const normalizedOutput = String(stmt.normalizedOutput).toUpperCase();
+        return normalizedResult.includes(normalizedOutput);
+      });
+
+      if (foundInTestcase) {
+        results.push(createPass(validatorName, taskId, turnNumber, item, 'dbms_output_covered', testcaseArtifact.fileName));
+      } else {
+        results.push(createFail(validatorName, taskId, turnNumber, item, 'dbms_output_not_covered', {
+          expected: `DBMS_OUTPUT.PUT_LINE '${stmt.text}' must be verified in testcase execution result`,
+          present: `No testcase execution result contains '${stmt.text}'`,
+          update: `Add a testcase that triggers the '${stmt.text}' output path and verify it in execution_result`,
+          sourceFile: testcaseArtifact.fileName,
+          line: stmt.line,
+        }));
+      }
+    }
   }
 
   return results;
@@ -227,27 +250,110 @@ function extractPromptLiterals(lines, sections, sectionKey, options = {}) {
       continue;
     }
 
-    const candidate = options.extractMessage && trimmed.includes(':')
-      ? trimmed.split(':').slice(1).join(':').trim()
-      : trimmed.includes(':')
-        ? trimmed.split(':').slice(1).join(':').trim() || trimmed
-        : trimmed;
-
-    const derivedCandidates = new Set([
-      ...deriveLiteralCandidates(candidate),
-      ...extractStablePlaceholderFragments(trimmed),
-    ]);
-
-    for (const derived of derivedCandidates) {
-      values.push({
-        text: normalizeLiteral(derived),
-        raw: derived,
-        line: lineIndex + 1,
-      });
+    if (options.extractMessage) {
+      values.push(...deriveExceptionLiteralEntries(trimmed, lineIndex + 1));
+      continue;
     }
+
+    values.push(...deriveOutputLiteralEntries(trimmed, lineIndex + 1));
   }
 
   return dedupeLiterals(values);
+}
+
+function deriveOutputLiteralEntries(line, lineNumber) {
+  const rawLine = line.trim();
+  const headerValueMatch = /^([A-Za-z][A-Za-z0-9 _-]{0,60}:)\s+(.+)$/.exec(rawLine);
+  const candidate = headerValueMatch && !looksLikeInstructionalOutput(rawLine)
+    ? headerValueMatch[2].trim()
+    : rawLine;
+  if (!candidate) {
+    return [];
+  }
+
+  const entries = [];
+  const seen = new Set();
+  const addLiteral = (value) => {
+    const normalized = normalizeLiteral(value);
+    if (!normalized) {
+      return;
+    }
+    const key = normalized.toUpperCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    entries.push({
+      text: normalized,
+      raw: normalized,
+      line: lineNumber,
+      matchMode: 'literal',
+    });
+  };
+
+  if (looksLikeInstructionalOutput(candidate)) {
+    PLACEHOLDER_TOKEN_RE.lastIndex = 0;
+    if (!PLACEHOLDER_TOKEN_RE.test(candidate)) {
+      PLACEHOLDER_TOKEN_RE.lastIndex = 0;
+      return [];
+    }
+
+    PLACEHOLDER_TOKEN_RE.lastIndex = 0;
+    const sourceForFragments = /\bas\s+(.+)$/i.exec(candidate)?.[1] ?? candidate;
+    for (const fragment of extractStablePlaceholderFragments(sourceForFragments)) {
+      if (/^(and|or)\b/i.test(fragment)) {
+        continue;
+      }
+      addLiteral(fragment);
+    }
+    return entries;
+  }
+
+  if (headerValueMatch) {
+    addLiteral(headerValueMatch[1]);
+  }
+
+  for (const derived of new Set([
+    ...deriveLiteralCandidates(candidate),
+    ...extractStablePlaceholderFragments(line),
+  ])) {
+    addLiteral(derived);
+  }
+
+  return entries;
+}
+
+function deriveExceptionLiteralEntries(line, lineNumber) {
+  const detail = line.includes(':')
+    ? line.split(':').slice(1).join(':').trim()
+    : line.trim();
+  if (!detail) {
+    return [];
+  }
+
+  const printMatch = /\bthen\s+print\b\s*([\s\S]+)$/i.exec(detail);
+  const message = normalizeLiteral(printMatch ? printMatch[1] : detail);
+  if (!message) {
+    return [];
+  }
+
+  PLACEHOLDER_TOKEN_RE.lastIndex = 0;
+  if (PLACEHOLDER_TOKEN_RE.test(message)) {
+    return extractExceptionPlaceholderFragments(message).map((fragment) => ({
+      text: normalizeLiteral(fragment),
+      raw: fragment,
+      line: lineNumber,
+      matchMode: 'string_literal_fragment',
+    }));
+  }
+
+  PLACEHOLDER_TOKEN_RE.lastIndex = 0;
+  return [{
+    text: message,
+    raw: message,
+    line: lineNumber,
+    matchMode: 'exact_exception_emission',
+  }];
 }
 
 function findSectionStop(sections, start, lineCount) {
@@ -256,6 +362,10 @@ function findSectionStop(sections, start, lineCount) {
 
 function isPromptGroupHeader(line) {
   return /^[A-Za-z][A-Za-z0-9_$#]*\s*:\s*$/.test(line);
+}
+
+function looksLikeInstructionalOutput(text) {
+  return /^(print|format|sort)\b/i.test(String(text ?? '').trim());
 }
 
 function isStrictLiteral(text) {
@@ -287,6 +397,7 @@ function deriveLiteralCandidates(text) {
 
 function extractStablePlaceholderFragments(text) {
   const raw = String(text ?? '');
+  PLACEHOLDER_TOKEN_RE.lastIndex = 0;
   if (!PLACEHOLDER_TOKEN_RE.test(raw)) {
     return [];
   }
@@ -334,6 +445,34 @@ function dedupeLiterals(values) {
     deduped.push(entry);
   }
   return deduped;
+}
+
+function extractExceptionPlaceholderFragments(text) {
+  const fragments = [];
+  for (const part of String(text ?? '').split(/(\[[^\]]+\]|<[^>]+>)/g)) {
+    if (!part || /^(\[[^\]]+\]|<[^>]+>)$/.test(part)) {
+      continue;
+    }
+
+    const normalized = part
+      .replace(/^[|,;/\s]+/, '')
+      .replace(/[|,;/\s]+$/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!isStrictLiteral(normalized)) {
+      continue;
+    }
+
+    const alphaLength = normalized.replace(/[^A-Za-z]/g, '').length;
+    if (alphaLength < 3) {
+      continue;
+    }
+
+    fragments.push(normalized);
+  }
+
+  return fragments;
 }
 
 function parseTestCaseBlocks(testcaseText) {
@@ -433,7 +572,7 @@ function buildLiteralCoverageResults({
   testcaseExpectation,
 }) {
   const results = [];
-  const codeSearch = findLiteralOccurrence(codeText, literal.text);
+  const codeSearch = findCodeLiteralCoverage(itemPrefix, codeText, literal);
   const skipTestcaseCoverage = shouldSkipLiteralTestcaseCoverage(itemPrefix, literal.text);
   const testcaseSearch = skipTestcaseCoverage ? { skipped: true } : findLiteralOccurrenceInTestcases(testcaseBlocks, literal.text);
   const codeItem = `${itemPrefix} Code Coverage: ${literal.raw}`;
@@ -468,12 +607,57 @@ function buildLiteralCoverageResults({
   return results;
 }
 
+/**
+ * Extracts ALL DBMS_OUTPUT.PUT_LINE statements from BEGIN and EXCEPTION blocks in the code.
+ * This is MANDATORY per testcase generation rules - every DBMS_OUTPUT must be covered by testcases.
+ * @param {string} codeText - The PL/SQL code text to analyze
+ * @returns {Array<{text: string, normalizedOutput: string, line: number, blockType: string}>}
+ */
+function extractAllDbmsOutputStatements(codeText) {
+  const statements = [];
+
+  // Match DBMS_OUTPUT.PUT_LINE with string literals (both single and double quotes for robustness)
+  // Pattern: DBMS_OUTPUT.PUT_LINE( '...' ) or DBMS_OUTPUT.PUT_LINE( "..." )
+  const dbmsOutputRegex = /DBMS_OUTPUT\s*\.\s*PUT_LINE\s*\(\s*(['"])(.*?)\1\s*\)/gi;
+
+  let match;
+  while ((match = dbmsOutputRegex.exec(codeText)) !== null) {
+    const quoteChar = match[1];
+    const outputContent = match[2];
+    // Handle escaped quotes within the string
+    const unescapedContent = quoteChar === "'"
+      ? outputContent.replace(/''/g, "'")
+      : outputContent.replace(/""/g, '"');
+
+    statements.push({
+      text: unescapedContent,
+      normalizedOutput: normalizeLiteral(unescapedContent),
+      line: findLineNumber(codeText, match.index ?? 0),
+      blockType: 'unknown', // Could be enhanced to detect BEGIN vs EXCEPTION block
+    });
+  }
+
+  return statements;
+}
+
 function shouldSkipLiteralTestcaseCoverage(itemPrefix, literalText) {
   if (itemPrefix !== 'Exception Message') {
     return false;
   }
 
-  return normalizeLiteral(literalText).toUpperCase() === 'UNEXPECTED ERROR OCCURRED';
+  return normalizeLiteral(literalText).replace(/[.!]+$/g, '').toUpperCase() === 'UNEXPECTED ERROR OCCURRED';
+}
+
+function findCodeLiteralCoverage(itemPrefix, codeText, literal) {
+  if (itemPrefix !== 'Exception Message') {
+    return findLiteralOccurrence(codeText, literal.text);
+  }
+
+  if (literal.matchMode === 'string_literal_fragment') {
+    return findStringLiteralFragmentOccurrence(codeText, literal.text);
+  }
+
+  return findExactExceptionEmission(codeText, literal.text);
 }
 
 function findProgramCoverageInTestcases(testcaseBlocks, programName) {
@@ -488,13 +672,47 @@ function findLiteralOccurrence(text, literal) {
   return index === -1 ? null : { line: findLineNumber(text, index) };
 }
 
+function findStringLiteralFragmentOccurrence(text, literal) {
+  const normalizedLiteral = normalizeLiteral(literal).toUpperCase();
+
+  for (const match of String(text ?? '').matchAll(/'(?:[^'\r\n]|'')*'/g)) {
+    const content = match[0].slice(1, -1).replace(/''/g, "'");
+    if (normalizeLiteral(content).toUpperCase().includes(normalizedLiteral)) {
+      return {
+        line: findLineNumber(text, match.index ?? 0),
+      };
+    }
+  }
+
+  return null;
+}
+
+function findExactExceptionEmission(text, literal) {
+  const escapedLiteral = escapeRegex(String(literal ?? '').replace(/'/g, "''"));
+  const patterns = [
+    new RegExp(`\\bDBMS_OUTPUT\\s*\\.\\s*PUT_LINE\\s*\\(\\s*'${escapedLiteral}'\\s*\\)`, 'i'),
+    new RegExp(`\\bRAISE_APPLICATION_ERROR\\s*\\(\\s*-?\\d+\\s*,\\s*'${escapedLiteral}'\\s*\\)`, 'i'),
+  ];
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(String(text ?? ''));
+    if (match?.index !== undefined) {
+      return { line: findLineNumber(text, match.index) };
+    }
+  }
+
+  return null;
+}
+
 function findLiteralOccurrenceInTestcases(testcaseBlocks, literal) {
+  const normalizedLiteral = normalizeLiteral(literal).toUpperCase();
   for (const block of testcaseBlocks) {
-    const index = block.result.toUpperCase().indexOf(String(literal ?? '').toUpperCase());
+    const normalizedResult = normalizeLiteral(block.result).toUpperCase();
+    const index = normalizedResult.indexOf(normalizedLiteral);
     if (index !== -1) {
       return {
         block,
-        line: block.resultLine === null ? null : block.resultLine + findLineNumber(block.result, index) - 1,
+        line: block.resultLine,
       };
     }
   }
@@ -512,5 +730,13 @@ function normalizeIdentifier(value) {
 }
 
 function normalizeLiteral(value) {
-  return String(value ?? '').trim().replace(/\s+/g, ' ');
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/\s*:\s*/g, ': ')
+    .replace(/\s+\./g, '.');
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

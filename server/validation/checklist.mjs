@@ -273,6 +273,15 @@ export const VALIDATION_CHECKLIST_CATALOG = [
     description: 'Explicit prompt exception messages must appear in testcase execution results.',
   },
   {
+    checkId: 'alignment.dbms-output-coverage',
+    category: 'artifact-alignment',
+    validator: VALIDATOR_NAMES.artifactAlignment,
+    itemPrefix: 'DBMS_OUTPUT Coverage:',
+    dynamic: true,
+    ruleIds: ['dbms_output_covered', 'dbms_output_not_covered'],
+    description: 'MANDATORY: All DBMS_OUTPUT.PUT_LINE statements in BEGIN/EXCEPTION blocks must be verified in testcase execution results.',
+  },
+  {
     checkId: 'plsql.metadata',
     category: 'plsql-program',
     validator: VALIDATOR_NAMES.plsqlProgram,
@@ -293,8 +302,8 @@ export const VALIDATION_CHECKLIST_CATALOG = [
     category: 'plsql-program',
     validator: VALIDATOR_NAMES.plsqlProgram,
     item: 'Columns Artifact',
-    ruleIds: ['artifact_present', 'missing_artifact'],
-    description: 'Each turn must have a columns artifact.',
+    ruleIds: ['artifact_present', 'missing_artifact', 'empty_columns_artifact'],
+    description: 'Each turn must have a columns artifact with generated column entries.',
   },
   {
     checkId: 'plsql.test-cases-artifact',

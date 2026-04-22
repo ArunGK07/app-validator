@@ -38,7 +38,10 @@ export function analyzeTables(codeText, schema) {
 
 export function analyzeColumns(codeText, schema) {
   const { database, tableColumns, columnToTables } = loadSchemaColumns(schema);
-  const code = normalizeCodeForAnalysis(codeText);
+  const code = [
+    normalizeCodeForAnalysis(codeText),
+    ...extractDynamicSqlFragments(codeText).map((fragment) => removeSqlComments(fragment)),
+  ].join('\n');
   const aliasMap = extractTableAliases(code, tableColumns);
   const mentionedTables = new Set(Object.values(aliasMap));
   const matched = new Set();
@@ -142,7 +145,75 @@ export function evaluatePlsqlConstructs(codeText) {
     selfJoinEntry.matchedText = selfJoin ? collapseWhitespace(selfJoin.text).slice(0, 180) : null;
   }
 
+  reconcileIfConstructs(evaluations, normalized);
+
   return evaluations;
+}
+
+function reconcileIfConstructs(evaluations, normalized) {
+  const ifClassifications = classifyIfBlocks(normalized);
+  const mapping = new Map([
+    ['IF ... THEN ... ELSIF ... ELSE ... END IF', 'elsifElse'],
+    ['IF ... THEN ... ELSE ... END IF', 'plainElse'],
+    ['IF ... THEN ... END IF', 'plainIf'],
+    ['IF ... THEN ... ELSIF ... END IF', 'elsifOnly'],
+  ]);
+
+  for (const [label, classificationType] of mapping.entries()) {
+    const entry = evaluations.find((candidate) => candidate.label === label);
+    if (!entry) {
+      continue;
+    }
+
+    const match = ifClassifications.find((candidate) => candidate.type === classificationType) ?? null;
+    entry.matched = Boolean(match);
+    entry.line = match ? findLineNumber(normalized, match.index) : null;
+    entry.matchedText = match ? collapseWhitespace(match.text).slice(0, 180) : null;
+  }
+}
+
+function classifyIfBlocks(text) {
+  const classifications = [];
+  const stack = [];
+  const tokenPattern = /\bEND\s+IF\b|\bELSIF\b|\bELSE\b|\bIF\b/gi;
+
+  for (const match of String(text).matchAll(tokenPattern)) {
+    const token = match[0].toUpperCase().replace(/\s+/g, ' ').trim();
+    if (token === 'IF') {
+      stack.push({
+        index: match.index ?? 0,
+        sawElsif: false,
+        sawElse: false,
+      });
+      continue;
+    }
+
+    const current = stack.at(-1);
+    if (!current) {
+      continue;
+    }
+
+    if (token === 'ELSIF') {
+      current.sawElsif = true;
+      continue;
+    }
+
+    if (token === 'ELSE') {
+      current.sawElse = true;
+      continue;
+    }
+
+    const completed = stack.pop();
+    classifications.push({
+      type: completed.sawElsif
+        ? (completed.sawElse ? 'elsifElse' : 'elsifOnly')
+        : (completed.sawElse ? 'plainElse' : 'plainIf'),
+      index: completed.index,
+      text: String(text).slice(completed.index, (match.index ?? completed.index) + match[0].length),
+    });
+  }
+
+  return classifications;
 }
 
 export function analyzeReasoningTypes(codeText) {

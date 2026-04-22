@@ -186,6 +186,7 @@ export class ReportPageComponent implements OnInit {
   actionError = '';
   actionMessage = '';
   loadingFetch = false;
+  copyingMetadata = false;
   showFetchConfirm = false;
   showPublishConfirm = false;
   publishConfirmRequiresOverride = false;
@@ -1361,15 +1362,31 @@ export class ReportPageComponent implements OnInit {
     }
 
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(content);
-      } else {
-        this.copyTextFallback(content);
-      }
+      await this.copyTextToClipboard(content);
       this.actionError = '';
       this.actionMessage = 'Copied validation message.';
     } catch (error) {
       this.actionError = this.asErrorMessage(error);
+    }
+  }
+
+  async copyMetadataFile(): Promise<void> {
+    if (!this.taskId || this.copyingMetadata) {
+      return;
+    }
+
+    const metadataFileName = `${this.taskId}_1metadata.json`;
+    this.copyingMetadata = true;
+    this.actionError = '';
+
+    try {
+      const file = await firstValueFrom(this.api.getTaskReportFile(this.taskId, metadataFileName));
+      await this.copyTextToClipboard(file.content);
+      this.actionMessage = `Copied ${metadataFileName}.`;
+    } catch (error) {
+      this.actionError = this.asErrorMessage(error);
+    } finally {
+      this.copyingMetadata = false;
     }
   }
 
@@ -2512,6 +2529,15 @@ export class ReportPageComponent implements OnInit {
     textarea.select();
     document.execCommand('copy');
     document.body.removeChild(textarea);
+  }
+
+  private async copyTextToClipboard(text: string): Promise<void> {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    this.copyTextFallback(text);
   }
 
   private asTone(success: boolean): 'good' | 'warn' {

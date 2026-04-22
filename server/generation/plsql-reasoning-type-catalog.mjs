@@ -25,6 +25,7 @@ const RAW_REASONING_TYPE_CATALOG = [
   entry('Data Synchronization', [/\bMERGE\s+INTO\b[\s\S]{0,400}?\bUSING\b[\s\S]{0,400}?\bON\b/i]),
   entry('Conditional Derivation', [/\bCASE\b[\s\S]{0,300}?\bWHEN\b/i, /\b(?:DECODE|NVL2|COALESCE|NULLIF)\s*\(/i], 'any'),
   entry('Set-based Processing', [/\b(?:UNION(?:\s+ALL)?|MINUS|INTERSECT|MULTISET|EXISTS\s*\(|IN\s*\(\s*SELECT|MERGE\s+INTO)\b/i]),
+  entry('Inline execution', [/(?:\bEXISTS\s*\(|\bTABLE\s*\(|\bFROM\s*\(\s*SELECT\b|\b(?:IN|NOT\s+IN|ANY|ALL)\s*\(\s*SELECT\b|(?:=|<>|!=|>|<|>=|<=)\s*\(\s*SELECT\b|\bPRAGMA\s+AUTONOMOUS_TRANSACTION\b)/i]),
   entry('Decision Logic', [/\b(?:IF\b[\s\S]{0,2000}?\bTHEN\b|CASE\b[\s\S]{0,2000}?\bWHEN\b)/i]),
   entry('Structural & Scope', [/\b(?:DECLARE\b|CREATE\s+OR\s+REPLACE\s+(?:(?:NON)?EDITIONABLE\s+)?(?:PROCEDURE|FUNCTION|PACKAGE|TYPE|TRIGGER)|SUBTYPE\b)\b/i]),
   entry('Memory & Type', [/\b(?:%TYPE|%ROWTYPE|TYPE\s+\w+\s+IS\s+RECORD|SUBTYPE\b)\b/i]),

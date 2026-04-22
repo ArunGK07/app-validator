@@ -239,6 +239,10 @@ const AUXILIARY_ARTIFACTS = [
     templateKey: 'turn_columns_file',
     item: 'Columns Artifact',
     missingUpdate: 'run the columns extraction step before running validation',
+    invalidEmptyPattern: /^\[\s*No\s+columns?s?\s+found\s*\]$/i,
+    emptyRuleId: 'empty_columns_artifact',
+    emptyExpected: 'columns artifact must contain at least one extracted schema column',
+    emptyUpdate: 'rerun generate-outputs after fixing column extraction, or correct the columns artifact with the referenced schema columns',
   },
   {
     templateKey: 'turn_test_cases_file',
@@ -268,6 +272,16 @@ async function validateAuxiliaryArtifacts(taskId, taskDir, turnNumber) {
         expected: `${artifactSpec.item.toLowerCase()} for turn ${turnNumber} must exist`,
         present: `\`${artifact.fileName}\` not found in ${taskDir}`,
         update: artifactSpec.missingUpdate,
+        sourceFile: artifact.fileName,
+      }));
+      continue;
+    }
+
+    if (artifactSpec.invalidEmptyPattern?.test(artifact.text.trim())) {
+      results.push(createFail(validatorName, taskId, turnNumber, artifactSpec.item, artifactSpec.emptyRuleId, {
+        expected: artifactSpec.emptyExpected,
+        present: `\`${artifact.fileName}\` contains ${artifact.text.trim()}`,
+        update: artifactSpec.emptyUpdate,
         sourceFile: artifact.fileName,
       }));
       continue;
@@ -646,8 +660,6 @@ export async function runPlsqlProgramValidator(taskId, taskDir, metadata) {
 
   return results;
 }
-
-
 
 
 

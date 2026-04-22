@@ -56,6 +56,14 @@
               >
                 {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
               </button>
+              <button
+                type="button"
+                class="action-button action-button--secondary"
+                [disabled]="isTaskActionDisabled() || copyingMetadata"
+                (click)="copyMetadataFile()"
+              >
+                {{ copyingMetadata ? 'Copying...' : 'Copy metadata' }}
+              </button>
             </div>
           </div>
           <label class="git-toggle" [class.git-toggle--on]="autoCommit">
@@ -104,6 +112,14 @@
                 (click)="confirmAndFetch()"
               >
                 {{ loadingFetch ? 'Fetching Data...' : 'Fetch Data' }}
+              </button>
+              <button
+                type="button"
+                class="action-button action-button--secondary"
+                [disabled]="isTaskActionDisabled() || copyingMetadata"
+                (click)="copyMetadataFile()"
+              >
+                {{ copyingMetadata ? 'Copying...' : 'Copy metadata' }}
               </button>
               <button
                 *ngFor="let workflow of workflowActions"

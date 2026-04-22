@@ -522,4 +522,81 @@ test('runTaskWorkflowAction(publish) retries transient fetch failures and record
   }
 });
 
+test('runTaskWorkflowAction(publish) normalizes tablesRequired and columnsRequired to canonical field names', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-workflows-'));
+  const taskOutputDir = join(root, 'task-output');
+  const taskDir = join(taskOutputDir, '9462');
+  const requests = [];
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeWorkflowFixture(taskDir);
+
+    await writeFile(
+      join(taskDir, '_internal', '9462_publishContext.json'),
+      JSON.stringify({
+        version: 1,
+        task_id: 9462,
+        prompt_id: 'prompt-9462',
+        colabLink: 'https://labeling-o.turing.com/conversations/9462/view',
+        graphql_url: 'https://rlhf-api.turing.com/graphql',
+        fetched_at_utc: '2026-03-21T00:00:00.000Z',
+        turns: [
+          {
+            turnNumber: 1,
+            promptTurnId: 'turn-1',
+            preferenceSignal: null,
+            unratable: false,
+            promptEvaluationFeedback: {
+              promptTurnEvaluation: [
+                { name: 'user', value: 'old prompt' },
+                { name: 'tablesRequired', value: 'old tables' },
+                { name: 'columnsRequired', value: 'old columns' },
+              ],
+            },
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const result = await runTaskWorkflowAction(
+      'publish',
+      '9462',
+      {
+        cookie: 'cookie=value',
+        taskOutputDir,
+        trainerProjectDir: 'D:\\Turing\\Projects\\workspace\\llm-trainer-project',
+      },
+      {
+        publishDependencies: {
+          fetchImpl: async (url, init) => {
+            requests.push({ url, init });
+            return {
+              ok: true,
+              status: 200,
+              async json() {
+                return { data: { reviewPromptTurn: { id: 'turn-1' } } };
+              },
+            };
+          },
+        },
+      },
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(requests.length, 1);
+    const body = JSON.parse(String(requests[0].init.body));
+    const evaluation = body.variables.input.promptEvaluationFeedback.promptTurnEvaluation;
+    const names = evaluation.map((entry) => entry.name);
+
+    assert.ok(names.includes('tables'));
+    assert.ok(names.includes('columns'));
+    assert.equal(names.includes('tablesRequired'), false);
+    assert.equal(names.includes('columnsRequired'), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 

@@ -292,6 +292,7 @@ test('construct analyzer distinguishes ELSIF-with-ELSE from ELSIF-without-ELSE a
   const constructs = new Set(analyzeConstructs(sql));
 
   assert.ok(constructs.has('IF ... THEN ... ELSIF ... ELSE ... END IF'));
+  assert.ok(!constructs.has('IF ... THEN ... ELSE ... END IF'));
   assert.ok(!constructs.has('IF ... THEN ... ELSIF ... END IF'));
   assert.ok(constructs.has('BEGIN ... END (nested block)'));
 });
@@ -326,6 +327,42 @@ test('construct analyzer detects IF ... THEN ... ELSE ... END IF and plain JOIN 
   assert.ok(constructs.has('JOIN ... ON ...'));
 });
 
+test('construct analyzer keeps plain IF ... ELSE ... END IF when a separate ELSIF chain also exists', () => {
+  const sql = [
+    'CREATE OR REPLACE PACKAGE BODY pkg_demo IS',
+    '  FUNCTION sf_status(p_total NUMBER, p_min NUMBER) RETURN VARCHAR2 IS',
+    '    lv_status VARCHAR2(30);',
+    '  BEGIN',
+    '    IF p_total < p_min THEN',
+    "      lv_status := 'CRITICAL';",
+    '    ELSIF p_total < (p_min * 2) THEN',
+    "      lv_status := 'WARNING';",
+    '    ELSE',
+    "      lv_status := 'OK';",
+    '    END IF;',
+    '    RETURN lv_status;',
+    '  END sf_status;',
+    '',
+    '  PROCEDURE sp_trigger_style(p_deleting BOOLEAN, p_old NUMBER, p_new NUMBER) IS',
+    '    lv_product_id NUMBER;',
+    '  BEGIN',
+    '    IF p_deleting THEN',
+    '      lv_product_id := p_old;',
+    '    ELSE',
+    '      lv_product_id := p_new;',
+    '    END IF;',
+    '    DBMS_OUTPUT.PUT_LINE(lv_product_id);',
+    '  END sp_trigger_style;',
+    'END pkg_demo;',
+    '/',
+  ].join('\n');
+
+  const constructs = new Set(analyzeConstructs(sql));
+
+  assert.ok(constructs.has('IF ... THEN ... ELSIF ... ELSE ... END IF'));
+  assert.ok(constructs.has('IF ... THEN ... ELSE ... END IF'));
+});
+
 test('reasoning analyzer detects Data Manipulation for aliased UPDATE ... SET statements', () => {
   const sql = [
     'DECLARE',
@@ -342,6 +379,36 @@ test('reasoning analyzer detects Data Manipulation for aliased UPDATE ... SET st
   const reasoning = new Set(analyzeReasoningTypes(sql));
 
   assert.ok(reasoning.has('Data Manipulation'));
+});
+
+test('reasoning analyzer detects Inline execution for nested subquery patterns', () => {
+  const sql = [
+    'CREATE OR REPLACE PROCEDURE sp_audit_class_length (',
+    '    p_class_id IN SCHOOL_SCHEDULING.CLASSES.classid%TYPE',
+    ') AS',
+    '    lv_duration SCHOOL_SCHEDULING.CLASSES.duration%TYPE;',
+    'BEGIN',
+    '    SELECT c.duration',
+    '    INTO lv_duration',
+    '    FROM SCHOOL_SCHEDULING.CLASSES c',
+    '    WHERE c.classid = p_class_id',
+    '      AND EXISTS (',
+    '          SELECT 1',
+    '          FROM SCHOOL_SCHEDULING.SUBJECTS sx',
+    '          WHERE sx.subjectid = c.subjectid',
+    '      );',
+    'END;',
+    '/',
+  ].join('\n');
+
+  const reasoning = new Set(analyzeReasoningTypes(sql));
+  const evaluations = evaluateReasoningTypes(sql);
+  const inlineExecution = evaluations.find((entry) => entry.label === 'Inline execution');
+
+  assert.ok(reasoning.has('Inline execution'));
+  assert.ok(inlineExecution?.matched);
+  assert.equal(typeof inlineExecution?.line, 'number');
+  assert.match(String(inlineExecution?.matchedText), /EXISTS/i);
 });
 
 test('construct analyzer does not treat WHILE loops as generic LOOP constructs', () => {
@@ -883,6 +950,57 @@ test('trigger analyzers include UPDATE OF target tables, detect :OLD. ... usage,
   assert.ok(constructs.has('WHEN (...)'));
   assert.ok(!reasoning.has('Data Manipulation'));
   assert.ok(reasoning.has('Event-Driven Logic'));
+});
+
+test('column analyzer scans dynamic SQL fragments for SELECT, JOIN, and UPDATE columns', () => {
+  const schema = {
+    database: 'SCHOOL_SCHEDULING',
+    _schema_definition: { column_format: ['name'] },
+    tables: {
+      CLASSES: {
+        columns: [['CLASSID'], ['SUBJECTID'], ['DURATION']],
+      },
+      SUBJECTS: {
+        columns: [['SUBJECTID'], ['SUBJECTNAME']],
+      },
+    },
+  };
+
+  const sql = [
+    'CREATE OR REPLACE PROCEDURE sp_bulk_schedule_audit AS',
+    '  TYPE t_refcur IS REF CURSOR;',
+    '  cur_classes t_refcur;',
+    '  lv_total_count NUMBER;',
+    'BEGIN',
+    '  EXECUTE IMMEDIATE',
+    "      'SELECT COUNT(*) ' ||",
+    "      'FROM ( ' ||",
+    "      '  SELECT c.classid ' ||",
+    "      '  FROM SCHOOL_SCHEDULING.CLASSES c ' ||",
+    "      '  JOIN SCHOOL_SCHEDULING.SUBJECTS s ON s.subjectid = c.subjectid ' ||",
+    "      '  WHERE EXISTS (SELECT 1 FROM SCHOOL_SCHEDULING.SUBJECTS sx WHERE sx.subjectid = c.subjectid) ' ||",
+    "      ')'",
+    '  INTO lv_total_count;',
+    '',
+    '  OPEN cur_classes FOR',
+    "      'SELECT c.classid, c.duration, s.subjectname ' ||",
+    "      'FROM SCHOOL_SCHEDULING.CLASSES c ' ||",
+    "      'JOIN SCHOOL_SCHEDULING.SUBJECTS s ON s.subjectid = c.subjectid ' ||",
+    "      'WHERE EXISTS (SELECT 1 FROM SCHOOL_SCHEDULING.SUBJECTS sx WHERE sx.subjectid = c.subjectid)';",
+    '',
+    '  EXECUTE IMMEDIATE',
+    "      'UPDATE SCHOOL_SCHEDULING.CLASSES SET duration = 120 WHERE classid = :1';",
+    'END;',
+    '/',
+  ].join('\n');
+
+  const columns = new Set(analyzeColumns(sql, schema));
+
+  assert.ok(columns.has('SCHOOL_SCHEDULING.CLASSES.classid'));
+  assert.ok(columns.has('SCHOOL_SCHEDULING.CLASSES.subjectid'));
+  assert.ok(columns.has('SCHOOL_SCHEDULING.CLASSES.duration'));
+  assert.ok(columns.has('SCHOOL_SCHEDULING.SUBJECTS.subjectid'));
+  assert.ok(columns.has('SCHOOL_SCHEDULING.SUBJECTS.subjectname'));
 });
 
 test('construct analyzer detects LEAST() and does not emit generic IN for anonymous loop-only usage', () => {

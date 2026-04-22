@@ -303,19 +303,27 @@ function buildPromptTurnEvaluation(promptTurn, fileValues) {
     ? promptTurn.promptEvaluationFeedback.promptTurnEvaluation
     : [];
   const updated = [];
-  const seen = new Set();
+  const populatedRequiredFields = new Set();
 
   for (const item of existingItems) {
     const name = typeof item?.name === 'string' ? item.name.trim() : '';
     if (!name) continue;
-    seen.add(normalizeFieldName(name));
     const canonical = canonicalizeFieldName(name);
-    updated.push({ name, value: canonical ? fileValues[canonical] : String(item?.value ?? '') });
+
+    if (canonical) {
+      if (populatedRequiredFields.has(canonical)) {
+        continue;
+      }
+      populatedRequiredFields.add(canonical);
+      updated.push({ name: canonical, value: fileValues[canonical] });
+      continue;
+    }
+
+    updated.push({ name, value: String(item?.value ?? '') });
   }
 
   for (const field of REQUIRED_PUBLISH_FIELDS) {
-    const aliases = FIELD_ALIASES[field].map((alias) => normalizeFieldName(alias));
-    if (aliases.some((alias) => seen.has(alias))) continue;
+    if (populatedRequiredFields.has(field)) continue;
     updated.push({ name: field, value: fileValues[field] });
   }
 

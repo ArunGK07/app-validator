@@ -71,6 +71,7 @@ export class DashboardPageComponent implements OnInit {
   bulkFetchTaskId: string | null = null;
   bulkFetchCompleted = 0;
   validatingTaskId: string | null = null;
+  copyingMetadataTaskId: string | null = null;
   bulkValidateInProgress = false;
   bulkValidateTaskId: string | null = null;
   bulkValidateCompleted = 0;
@@ -165,6 +166,30 @@ export class DashboardPageComponent implements OnInit {
     } finally {
       if (this.loadingTaskId === taskId) {
         this.loadingTaskId = null;
+      }
+    }
+  }
+
+  async copyMetadata(row: ConversationRow): Promise<void> {
+    if (!row.taskId || this.hasBackgroundTaskProcess || this.copyingMetadataTaskId) {
+      return;
+    }
+
+    const taskId = row.taskId;
+    const metadataFileName = `${taskId}_1metadata.json`;
+    this.copyingMetadataTaskId = taskId;
+    this.error = '';
+    this.message = '';
+
+    try {
+      const file = await firstValueFrom(this.api.getTaskReportFile(taskId, metadataFileName));
+      await this.copyTextToClipboard(file.content);
+      this.message = `Copied ${metadataFileName}.`;
+    } catch (error) {
+      this.error = this.asErrorMessage(error);
+    } finally {
+      if (this.copyingMetadataTaskId === taskId) {
+        this.copyingMetadataTaskId = null;
       }
     }
   }
@@ -364,6 +389,10 @@ export class DashboardPageComponent implements OnInit {
 
   isValidateRunningForTask(taskId: string): boolean {
     return this.validatingTaskId === taskId || this.bulkValidateTaskId === taskId;
+  }
+
+  isCopyMetadataRunningForTask(taskId: string): boolean {
+    return this.copyingMetadataTaskId === taskId;
   }
 
   openReport(taskId: string): void {
@@ -689,9 +718,31 @@ export class DashboardPageComponent implements OnInit {
     return 'Something went wrong while calling the proxy.';
   }
 
+  private async copyTextToClipboard(text: string): Promise<void> {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    this.copyTextFallback(text);
+  }
+
+  private copyTextFallback(text: string): void {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'true');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+  }
+
   private get hasBackgroundTaskProcess(): boolean {
     return Boolean(
       this.loadingTaskId ||
+        this.copyingMetadataTaskId ||
         this.validatingTaskId ||
         this.bulkFetchInProgress ||
         this.bulkValidateInProgress,
