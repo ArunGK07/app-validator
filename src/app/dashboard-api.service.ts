@@ -135,5 +135,10 @@ export class DashboardApiService {
 
     return row;
   }
+
+  checkImportJsonStatus(taskId: string): Observable<{ taskId: string; hasImportJson: boolean }> {
+    return this.http.get<{ taskId: string; hasImportJson: boolean }>
+      (`/api/tasks/${encodeURIComponent(taskId)}/import-json-status`);
+  }
 }
 

@@ -8,6 +8,7 @@ const execFileAsync = promisify(execFile);
 import { createLogger } from './logger.mjs';
 import { runNativeValidation } from './validation/engine.mjs';
 import { runNativeGenerateOutputs, runNativeGenerateArtifacts, runNativeExecuteTestCases } from './generation/engine.mjs';
+import { runNativeImportJson } from './generation/import-json.mjs';
 import { runNativePublish } from './publish/engine.mjs';
 
 const DEFAULT_TRAINER_PROJECT_DIR = 'D:\\Turing\\Projects\\workspace\\llm-trainer-project';
@@ -36,12 +37,21 @@ const ACTION_DEFINITIONS = {
     logPrefix: 'execute-tests',
     runNative: runNativeExecuteTestCasesAction,
   },
+  'import-json': {
+    command: ['native-import-json'],
+    logPrefix: 'import-json',
+    runNative: runNativeImportJsonAction,
+  },
   publish: {
     command: ['native-publish'],
     logPrefix: 'publish',
     runNative: runNativePublishAction,
   },
 };
+
+function normalizeTaskWorkflowActionName(action) {
+  return typeof action === 'string' ? action.trim().toLowerCase().replace(/_/g, '-') : '';
+}
 
 export function extendRuntimeConfigWithWorkflowDefaults(config, env = process.env) {
   return {
@@ -52,10 +62,14 @@ export function extendRuntimeConfigWithWorkflowDefaults(config, env = process.en
 }
 
 export async function runTaskWorkflowAction(action, taskId, config, options = {}) {
-  const definition = ACTION_DEFINITIONS[action];
+  const normalizedAction = normalizeTaskWorkflowActionName(action);
+  const definition = ACTION_DEFINITIONS[action] ?? ACTION_DEFINITIONS[normalizedAction];
 
   if (!definition) {
-    throw withStatus(new Error(`Unknown task workflow action: ${action}`), 404);
+    throw withStatus(
+      new Error(`Unknown task workflow action: ${action}${normalizedAction && normalizedAction !== action ? ` (normalized: ${normalizedAction})` : ''}`),
+      404,
+    );
   }
 
   if (!config.cookie) {
@@ -159,6 +173,14 @@ async function runNativeExecuteTestCasesAction(context, config, options = {}) {
     options.generateDependencies ?? {},
   );
   return gitResult ? { ...result, gitCommit: gitResult } : result;
+}
+
+async function runNativeImportJsonAction(context, _config, _options = {}) {
+  return runNativeImportJson(
+    context.taskId,
+    context.taskDir,
+    context.logFilePath,
+  );
 }
 
 async function runNativePublishAction(context, config, options = {}) {
@@ -298,4 +320,3 @@ function formatTimestampForName(date) {
 function withStatus(error, statusCode) {
   return Object.assign(error, { statusCode });
 }
-

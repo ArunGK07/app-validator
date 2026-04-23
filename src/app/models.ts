@@ -33,6 +33,7 @@ export interface ConversationRow {
   lastReviewType?: string | null;
   lastReviewFollowup?: boolean | null;
   updatedAt?: string | null;
+  hasImportJson?: boolean | null;
 }
 
 export interface ReviewDetail {
@@ -85,7 +86,7 @@ export interface TaskReportFile {
   content: string;
 }
 
-export type TaskWorkflowAction = 'validate' | 'generate-outputs' | 'generate-artifacts' | 'execute-tests' | 'publish';
+export type TaskWorkflowAction = 'validate' | 'generate-outputs' | 'generate-artifacts' | 'execute-tests' | 'import-json' | 'publish';
 
 export interface TaskFetchResult {
   taskId: string;

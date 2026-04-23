@@ -1,5 +1,6 @@
 import express from 'express';
 import { readFileSync, existsSync } from 'node:fs';
+import { access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { createLogger, isBackendDebugEnabled, summarizePayload } from './logger.mjs';
@@ -212,6 +213,17 @@ app.post('/api/tasks/:taskId/actions/:action', async (request, response) => {
   }
 });
 
+app.get('/api/tasks/:taskId/import-json-status', async (request, response) => {
+  try {
+    const taskId = asPathString(request.params.taskId);
+    const config = readRuntimeConfig();
+    const hasImportJson = await checkImportJsonExists(taskId, config);
+    response.json({ taskId, hasImportJson });
+  } catch (error) {
+    sendProxyError(response, error);
+  }
+});
+
 app.use((error, _request, response, _next) => {
   const statusCode =
     typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number'
@@ -286,11 +298,30 @@ function asQueryString(value) {
 }
 
 function asPathString(value) {
-  return typeof value === 'string' ? value : '';
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function isRecord(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+async function checkImportJsonExists(taskId, config) {
+  try {
+    if (!/^[a-z0-9_-]+$/i.test(taskId)) {
+      return false;
+    }
+
+    const { join } = await import('node:path');
+    const { resolve: pathResolve } = await import('node:path');
+    const rootPath = pathResolve(config.taskOutputDir);
+    const taskDir = pathResolve(rootPath, taskId);
+    const importJsonPath = join(taskDir, 'to_submit', `${taskId}_hil.json`);
+
+    await access(importJsonPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function loadLocalEnvFile(filename) {

@@ -170,6 +170,42 @@ async function writeLegacyWorkflowFixture(taskDir, taskId = '9462') {
   );
 }
 
+async function writeImportJsonFixture(taskDir, taskId = '9462') {
+  await writeWorkflowFixture(taskDir, taskId);
+  await writeFile(
+    join(taskDir, `${taskId}_hil.json`),
+    JSON.stringify(
+      {
+        metadata: {
+          complexity: 'intermediate',
+          num_turns: 1,
+        },
+        turns: [
+          {
+            turn_number: 1,
+            user_request: 'Import me as user request.',
+            tables: ['SAMPLE.ORDERS', 'SAMPLE.ORDER_ITEMS'],
+            columns: ['SAMPLE.ORDERS.ORDER_ID', 'SAMPLE.ORDER_ITEMS.ORDER_ID'],
+            reference_answer: 'SELECT 1 FROM dual;\n',
+            test_cases: [
+              {
+                test_case_number: 1,
+                test_case_code: 'BEGIN NULL; END;\n/',
+                execution_result: 'ok',
+              },
+            ],
+            reasoning_types: ['Data Retrieval', 'Control Flow'],
+            plsql_constructs: ['SELECT ... INTO ... FROM ...', 'IF ... THEN ... END IF'],
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+}
+
 test('runTaskWorkflowAction(validate) writes native validation reports and structured summaries', async () => {
   const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-workflows-'));
   const taskOutputDir = join(root, 'task-output');
@@ -517,6 +553,48 @@ test('runTaskWorkflowAction(publish) retries transient fetch failures and record
     assert.equal(result.success, true);
     assert.equal(requests.length, 2);
     assert.match(await readFile(result.logFile, 'utf8'), /saved successfully after 2 attempts/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('runTaskWorkflowAction(import-json) maps source JSON fields into task artifacts and publish context', async () => {
+  const root = await mkdtemp(join(os.tmpdir(), 'app-validator-task-workflows-'));
+  const taskOutputDir = join(root, 'task-output');
+  const taskDir = join(taskOutputDir, '9462');
+
+  try {
+    await mkdir(taskDir, { recursive: true });
+    await writeImportJsonFixture(taskDir);
+
+    const result = await runTaskWorkflowAction(
+      'import-json',
+      '9462',
+      {
+        cookie: 'cookie=value',
+        taskOutputDir,
+        trainerProjectDir: 'D:\\Turing\\Projects\\workspace\\llm-trainer-project',
+      },
+    );
+
+    assert.equal(result.success, true);
+    assert.deepEqual(result.command, ['native-import-json']);
+    assert.match(await readFile(join(taskDir, '9462_turn1_1user.txt'), 'utf8'), /Import me as user request\./);
+    assert.match(await readFile(join(taskDir, '9462_turn1_2tables.txt'), 'utf8'), /SAMPLE\.ORDERS,\nSAMPLE\.ORDER_ITEMS/);
+    assert.match(await readFile(join(taskDir, '9462_turn1_3columns.txt'), 'utf8'), /SAMPLE\.ORDERS\.ORDER_ID/);
+    assert.match(await readFile(join(taskDir, '9462_turn1_4referenceAnswer.sql'), 'utf8'), /SELECT 1 FROM dual;/);
+    assert.match(await readFile(join(taskDir, '9462_turn1_5testCases.sql'), 'utf8'), /Test Case 1:/);
+    assert.match(await readFile(join(taskDir, '9462_turn1_6reasoningTypes.txt'), 'utf8'), /Data Retrieval/);
+    assert.match(await readFile(join(taskDir, '9462_turn1_7plSqlConstructs.txt'), 'utf8'), /IF \.\.\. THEN \.\.\. END IF/);
+
+    const publishContext = JSON.parse(await readFile(join(taskDir, '_internal', '9462_publishContext.json'), 'utf8'));
+    const turnEval = publishContext.turns[0].promptEvaluationFeedback.promptTurnEvaluation;
+    const entryByName = new Map(turnEval.map((entry) => [entry.name, entry.value]));
+    assert.match(String(entryByName.get('user') ?? ''), /Import me as user request\./);
+    assert.match(String(entryByName.get('tables') ?? ''), /SAMPLE\.ORDERS/);
+    assert.match(String(entryByName.get('columns') ?? ''), /SAMPLE\.ORDERS\.ORDER_ID/);
+    assert.match(String(entryByName.get('tablesRequired') ?? ''), /SAMPLE\.ORDERS/);
+    assert.match(String(entryByName.get('columnsRequired') ?? ''), /SAMPLE\.ORDERS\.ORDER_ID/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

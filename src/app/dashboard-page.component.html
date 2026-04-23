@@ -164,6 +164,7 @@
             </button>
           </th>
           <th>Metadata</th>
+          <th>Import JSON</th>
           <th [attr.aria-sort]="getAriaSort('businessStatus')">
             <button class="sort-button" type="button" (click)="sortBy('businessStatus')">
               <span>Status</span>
@@ -277,6 +278,11 @@
               <button class="btn btn-secondary btn-row" type="button" (click)="toggleMetadata(row.taskId)">
                 {{ isMetadataOpen(row.taskId) ? 'Hide metadata' : 'View metadata' }}
               </button>
+            </td>
+            <td>
+              <span [class.import-json-yes]="row.hasImportJson" [class.import-json-no]="!row.hasImportJson">
+                {{ row.hasImportJson ? 'Yes' : 'No' }}
+              </span>
             </td>
             <td>{{ row.businessStatus }}</td>
             <td>{{ row.assignedUser }}</td>

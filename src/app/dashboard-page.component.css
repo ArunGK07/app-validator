@@ -638,6 +638,15 @@ pre {
   border: 0;
 }
 
+.import-json-yes {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.import-json-no {
+  color: var(--muted);
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

@@ -204,6 +204,7 @@ export class ReportPageComponent implements OnInit {
   previewTargetLine: number | null = null;
   validationPanelWidth = this.defaultValidationPanelWidth;
   readonly workflowActions: Array<{ action: TaskWorkflowAction; label: string }> = [
+    { action: 'import-json', label: 'Import JSON' },
     { action: 'validate', label: 'Re-Validate' },
     { action: 'generate-artifacts', label: 'Generate Artifacts' },
     { action: 'execute-tests', label: 'Execute Tests' },
